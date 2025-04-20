@@ -90,7 +90,7 @@ class ImSearch:
         self.root = root
         self.root.title("ImSearch")
         self.root.geometry("1366x768")
-        root.minsize(1000, 600)
+        root.minsize(1000, 720)
         root.columnconfigure(0, weight=1)
         root.columnconfigure(1, weight=0)
         root.columnconfigure(2, weight=1)
@@ -105,7 +105,7 @@ class ImSearch:
         # if darkdetect.theme() == "Dark":
         #     customtkinter.set_appearance_mode("Light")
         # else:
-        customtkinter.set_appearance_mode(darkdetect.theme())
+        #customtkinter.set_appearance_mode(darkdetect.theme())
         customtkinter.set_default_color_theme("dark-blue")
 
 
@@ -162,6 +162,21 @@ class ImSearch:
                 "language": "Idioma",
                 "start_search": "Iniciar búsqueda",
                 "stop_search": "Detener la búsqueda"
+            },
+            "Polish": {
+                "add_folder": "Dodaj folder",
+                "remove_folder": "Usuń folder",
+                "folder_up": "Priorytet ↑",
+                "folder_down": "Priorytet ↓",
+                "upload_image": "Załaduj zdjęcie",
+                "search_mode": "Tryb wyszukiwania",
+                "search_settings": "Ustawienia wyszukiwania",
+                "similarity_threshold": "Próg podobieństwa",
+                "delete_selected": "Usuń wybrane",
+                "search_subfolders": "Szukaj w podfolderach",
+                "language": "Język",
+                "start_search": "Szukaj",
+                "stop_search": "Zatrzymaj wyszukiwanie"
             }
             # Additional languages can be added here.
         }
@@ -171,11 +186,14 @@ class ImSearch:
 
         settings_menu = Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Settings", menu=settings_menu)
+        #menubar.add_cascade(label="Help", menu=)
+        #menubar.add_cascade(label="About", menu=)
 
         language_menu = Menu(settings_menu, tearoff=0)
         for language in self.languages.keys():
             language_menu.add_command(label=language, command=lambda lang=language: self.change_language(lang))
         settings_menu.add_cascade(label=self.languages[self.current_language]["language"], menu=language_menu)
+        #settings_menu.add_cascade(label=)
 
 
         folders_frame = CTkFrame(root)
@@ -451,14 +469,14 @@ class ImSearch:
         self.stop_search_button.grid(row=4, column=1, sticky="ew", padx=2, pady=2)
 
         # Row 5: File Operations
-        self.show_images_button.grid(row=5, column=0, sticky="ew", padx=2, pady=2)
+        self.show_images_button.grid(row=7, column=0, sticky="ew", padx=2, pady=2)
         self.open_in_explorer_button.grid(row=5, column=1, sticky="ew", padx=2, pady=2)
 
         # Row 6: Additional Actions
-        self.process_button.grid(row=6, column=0, sticky="ew", padx=2, pady=2)
+        self.process_button.grid(row=3, column=1, sticky="ew", padx=2, pady=2)
         self.save_button.grid(row=6, column=1, sticky="ew", padx=2, pady=2)
-        self.load_button.grid(row=7, column=0, sticky="ew", padx=2, pady=2)
-        self.delete_selected_button.grid(row=7, column=1, sticky="ew", padx=2, pady=2)
+        self.load_button.grid(row=6, column=0, sticky="ew", padx=2, pady=2)
+        self.delete_selected_button.grid(row=8, columnspan=2, sticky="ew", padx=2, pady=2)
 
         # Configure column weights
         search_frame.columnconfigure(0, weight=1)
@@ -598,6 +616,51 @@ class ImSearch:
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete image: {str(e)}")
 
+    def handle_canvas_resize(self, event=None, canvas=None):
+        """Handle resizing of images in canvases while maintaining aspect ratio"""
+        if event is not None:
+            canvas = event.widget
+        elif canvas is None:
+            return
+
+        if not hasattr(canvas, 'original_image'):
+            return
+
+        try:
+            # Get current canvas dimensions
+            canvas_width = canvas.winfo_width()
+            canvas_height = canvas.winfo_height()
+
+            # Skip if canvas is too small
+            if canvas_width <= 1 or canvas_height <= 1:
+                return
+
+            original_image = canvas.original_image
+            orig_width, orig_height = original_image.size
+
+            # Calculate aspect ratio-preserving dimensions
+            ratio = min(canvas_width / orig_width,
+                        canvas_height / orig_height)
+            new_width = max(1, int(orig_width * ratio))
+            new_height = max(1, int(orig_height * ratio))
+
+            # Resize with high-quality filter
+            resized_image = original_image.resize(
+                (new_width, new_height),
+                Image.Resampling.LANCZOS
+            )
+            img_tk = ImageTk.PhotoImage(resized_image)
+
+            # Update canvas display
+            canvas.delete("all")
+            x = (canvas_width - new_width) // 2
+            y = (canvas_height - new_height) // 2
+            canvas.create_image(x, y, anchor=tk.NW, image=img_tk)
+            canvas.image = img_tk  # Maintain reference
+
+        except Exception as e:
+            print(f"Resize error: {e}")
+
     def display_uploaded(self, image):
         width_factor = self.canvas_uploaded.winfo_width() / image.width
         height_factor = self.canvas_uploaded.winfo_height() / image.height
@@ -609,6 +672,10 @@ class ImSearch:
         self.canvas_uploaded.delete("all")
         self.canvas_uploaded.create_image(x_position, y_position, anchor=tk.NW, image=img)
         self.canvas_uploaded.image = img
+        self.canvas_uploaded.original_image = image
+        self.canvas_uploaded.unbind("<Configure>")
+        self.canvas_uploaded.bind("<Configure>", self.handle_canvas_resize)
+        self.handle_canvas_resize(canvas=self.canvas_uploaded)
 
     def display_selected(self, event):
         selected_items = self.tree.selection()
@@ -618,83 +685,47 @@ class ImSearch:
         selected_item = selected_items[0]
         current_mode = self.search_combobox.get()
 
-        # Clear canvases first
+        # Clear canvases while preserving original uploaded image
         self.canvas_selected.delete("all")
 
         def display_image(file_path, canvas):
-            """Helper to display an image fitted within canvas while maintaining aspect ratio"""
+            """Helper to display image with dynamic resizing capability"""
             try:
                 image = Image.open(file_path)
-                canvas.update_idletasks()  # Get accurate canvas dimensions
-                canvas_width = canvas.winfo_width()
-                canvas_height = canvas.winfo_height()
-
-                # Calculate scaling to fit within canvas
-                width_ratio = canvas_width / image.width
-                height_ratio = canvas_height / image.height
-                scale = min(width_ratio, height_ratio)
-
-                # Only resize if needed
-                if scale < 1 or scale > 1:  # Handle both upsizing and downsizing
-                    new_size = (int(image.width * scale), int(image.height * scale))
-                    image = image.resize(new_size, Image.Resampling.LANCZOS)
-
-                img_tk = ImageTk.PhotoImage(image)
-                canvas.delete("all")
-                canvas.image = img_tk  # Keep reference
-
-                # Center the image in canvas
-                x = (canvas_width - image.width) // 2
-                y = (canvas_height - image.height) // 2
-
-                canvas.create_image(
-                    x, y,
-                    anchor=tk.NW,
-                    image=img_tk
-                )
-
+                # Store original image and setup resize handling
+                canvas.original_image = image
+                canvas.unbind("<Configure>")
+                canvas.bind("<Configure>", self.handle_canvas_resize)
+                self.handle_canvas_resize(canvas=canvas)
             except Exception as e:
                 print(f"Error displaying {file_path}: {str(e)}")
 
         if current_mode == "Duplicate Pairs":
-            # Check if selected item is a group (parent) or file (child)
             children = self.tree.get_children(selected_item)
-
             if children:
-                # Group selected: Show first file on uploaded canvas, second on selected
                 file_paths = []
                 for child in self.tree.get_children(selected_item):
                     child_file = self.tree.item(child)["values"][0].split(" Similarity:")[0].strip('\"')
                     if Path(child_file).exists():
                         file_paths.append(child_file)
-
-                # Update both canvases
                 if file_paths:
-                    # Always keep first image on uploaded canvas
                     display_image(file_paths[0], self.canvas_uploaded)
-                    # Show second image on selected canvas if available
                     if len(file_paths) > 1:
                         display_image(file_paths[1], self.canvas_selected)
             else:
-                # File selected: Keep group's first image on left, show selected file on right
                 parent = self.tree.parent(selected_item)
                 if parent:
-                    # Get first file from the group to keep on uploaded canvas
                     group_files = []
                     for child in self.tree.get_children(parent):
                         child_file = self.tree.item(child)["values"][0].split(" Similarity:")[0].strip('\"')
                         if Path(child_file).exists():
                             group_files.append(child_file)
                     if group_files:
-                        # Maintain first image on uploaded canvas
                         display_image(group_files[0], self.canvas_uploaded)
-
-                # Show selected file on right canvas
                 file_path = self.tree.item(selected_item)["values"][0].split(" Similarity:")[0].strip('\"')
                 if Path(file_path).exists():
                     display_image(file_path, self.canvas_selected)
         else:
-            # Original behavior for non-group modes
             file_path = self.tree.item(selected_item)['values'][0].split(" Similarity:")[0].strip('\"')
             if Path(file_path).exists():
                 display_image(file_path, self.canvas_selected)
