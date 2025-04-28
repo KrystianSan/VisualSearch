@@ -14,13 +14,15 @@ from CTkListbox import CTkListbox
 from PIL import Image, ImageTk, UnidentifiedImageError
 from skimage.metrics import structural_similarity
 import csv
-import customtkinter
+import customtkinter as ctk
 from customtkinter import CTk, CTkFrame, CTkButton, CTkLabel, CTkEntry, CTkScrollbar, CTkComboBox, CTkCheckBox, StringVar, IntVar, CTkProgressBar
 
 import darkdetect
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+
+import CustomSpinbox
 
 import torch
 import torch.nn as nn
@@ -106,7 +108,7 @@ class ImSearch:
         #     customtkinter.set_appearance_mode("Light")
         # else:
         #customtkinter.set_appearance_mode(darkdetect.theme())
-        customtkinter.set_default_color_theme("dark-blue")
+        ctk.set_default_color_theme("dark-blue")
 
 
         self.folder_count = 0
@@ -136,11 +138,10 @@ class ImSearch:
             "English": {
                 "add_folder": "Add Folder",
                 "remove_folder": "Remove Folder",
-                "folder_up": "Priority up",
-                "folder_down": "Priority down",
+                "folder_up": "Priority ▲",
+                "folder_down": "Priority ▼",
                 "upload_image": "Upload Query Image",
                 "search_mode": "Choose search mode",
-                "search_settings": "Choose search settings",
                 "similarity_threshold": "Similarity threshold",
                 "delete_selected": "Delete Selected",
                 "search_subfolders": "Search subfolders",
@@ -151,11 +152,10 @@ class ImSearch:
             "Spanish": {
                 "add_folder": "Agregar Carpeta",
                 "remove_folder": "Eliminar Carpeta",
-                "folder_up": "Prioridad arriba",
-                "folder_down": "Prioridad abajo",
+                "folder_up": "Prioridad ▲",
+                "folder_down": "Prioridad ▼",
                 "upload_image": "Subir Imagen de Consulta",
                 "search_mode": "Elija el modo de búsqueda",
-                "search_settings": "Elija la configuración de búsqueda",
                 "similarity_threshold": "Umbral de similitud",
                 "delete_selected": "Eliminar Seleccionado",
                 "search_subfolders": "Buscar en subcarpetas",
@@ -166,11 +166,10 @@ class ImSearch:
             "Polish": {
                 "add_folder": "Dodaj folder",
                 "remove_folder": "Usuń folder",
-                "folder_up": "Priorytet ↑",
-                "folder_down": "Priorytet ↓",
+                "folder_up": "Priorytet ▲",
+                "folder_down": "Priorytet ▼",
                 "upload_image": "Załaduj zdjęcie",
                 "search_mode": "Tryb wyszukiwania",
-                "search_settings": "Ustawienia wyszukiwania",
                 "similarity_threshold": "Próg podobieństwa",
                 "delete_selected": "Usuń wybrane",
                 "search_subfolders": "Szukaj w podfolderach",
@@ -197,6 +196,7 @@ class ImSearch:
 
 
         folders_frame = CTkFrame(root)
+
 
         folders_frame.grid(row=0, column=0, sticky="news", columnspan=3)
         folders_frame.rowconfigure(0, weight=1)
@@ -227,10 +227,12 @@ class ImSearch:
 
 
         self.canvas_uploaded = tk.Canvas(root, bg="gray13", highlightthickness=2, highlightbackground="gray28")
-        #self.canvas_uploaded.place(x=12, y=96, height=535, width=428)
-
         self.canvas_selected = tk.Canvas(root, bg="gray13", highlightthickness=2, highlightbackground="gray28")
-        #self.canvas_selected.place(x=926, y=96, height=535, width=428)
+
+        self.last_appearance_mode = ctk.get_appearance_mode()
+        self.update_canvas_colors()
+        self.start_theme_monitor()
+
 
         self.canvas_uploaded.grid(row=1, column=0, sticky="news", padx=6, pady=6)
         self.canvas_selected.grid(row=1, column=2, sticky="news", padx=6, pady=6)
@@ -277,25 +279,54 @@ class ImSearch:
 
         #self.search_combobox.current(0)
 
-        self.start_search_button = CTkButton(search_frame, text=self.languages[self.current_language]["start_search"], command=self.run_search)
+        #self.start_search_button = CTkButton(search_frame, text=self.languages[self.current_language]["start_search"], command=self.run_search)
         #self.start_search_button.place(x=710, y=280, height=34, width=160)
         #self.start_search_button.pack()
         #self.start_search_button.grid()
 
-        self.stop_search_button = CTkButton(search_frame, text=self.languages[self.current_language]["stop_search"], command=self.stop_search)
+        #self.stop_search_button = CTkButton(search_frame, text=self.languages[self.current_language]["stop_search"], command=self.stop_search)
         #self.stop_search_button.place(x=710, y=324, height=34, width=160)
         #self.stop_search_button.pack()
         #self.stop_search_button.grid()
-        self.stop_search_button.configure(state=tk.DISABLED)
+
 
         self.subfolder_button = CTkCheckBox(search_frame, text=self.languages[self.current_language]["search_subfolders"], variable=self.subfolders,
                                                 onvalue=1, offvalue=0)
         #self.subfolder_button.place(x=650, y=243)
         #self.subfolder_button.pack()
         #self.subfolder_button.grid()
-        self.process_button = CTkButton(search_frame, text="Process Folders", command=self.process_folders)
-        #self.reprocess_button.pack()
-        #self.reprocess_button.grid()
+        self.process_button = ctk.CTkButton(
+            search_frame,
+            text="Process Folder",
+            fg_color=("#FFD700", "#FFA500"),  # Yellow/Orange (light/dark)
+            hover_color=("#FFC800", "#FF8C00"),
+            text_color=("black", "white"),  # Dark text in light mode, white in dark
+            corner_radius=8,
+            command=self.process_folders
+        )
+
+        # Start Search Button (Green)
+        self.start_search_button = ctk.CTkButton(
+            search_frame,
+            text="Start Search",
+            fg_color=("#2CC985", "#2FA572"),  # Green theme
+            hover_color=("#239B6A", "#267A5A"),
+            text_color=("white", "white"),
+            corner_radius=8,
+            command=self.run_search
+        )
+
+        # Stop Search Button (Red)
+        self.stop_search_button = ctk.CTkButton(
+            search_frame,
+            text="Stop Search",
+            fg_color=("#FF4B4B", "#FF3333"),  # Red theme
+            hover_color=("#CC0000", "#B22222"),
+            text_color=("white", "white"),
+            corner_radius=8,
+            command=self.stop_search
+        )
+        self.stop_search_button.configure(state=tk.DISABLED)
 
         #tree_frame = Frame(root)
         #tree_frame.pack(side="right", fill="y", pady=1, padx=1)
@@ -356,7 +387,7 @@ class ImSearch:
         self.tree.pack(padx=6, pady=6, fill=tk.BOTH)
         # tree_frame.place(x=14, y=640, height=100, width=1340)
         # tree_frame.grid
-        self.tree.bind("<<TreeviewSelect>>", self.display_selected)
+        self.tree.bind("<<TreeviewSelect>>", self.display_selected())
 
 
         #self.tree = ttk.Treeview(results_frame, columns=("path", "similarity"), show="headings", height=8, selectmode="browse")
@@ -375,9 +406,9 @@ class ImSearch:
         #tree_frame.grid
         #self.tree.bind("<<TreeviewSelect>>", self.display_selected)
 
-        bg_color = root._apply_appearance_mode(customtkinter.ThemeManager.theme["CTkFrame"]["fg_color"])
-        text_color = root._apply_appearance_mode(customtkinter.ThemeManager.theme["CTkLabel"]["text_color"])
-        selected_color = root._apply_appearance_mode(customtkinter.ThemeManager.theme["CTkButton"]["fg_color"])
+        bg_color = root._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["fg_color"])
+        text_color = root._apply_appearance_mode(ctk.ThemeManager.theme["CTkLabel"]["text_color"])
+        selected_color = root._apply_appearance_mode(ctk.ThemeManager.theme["CTkButton"]["fg_color"])
 
         treestyle = ttk.Style()
         treestyle.theme_use('default')
@@ -422,7 +453,7 @@ class ImSearch:
         self.open_in_explorer_button = CTkButton(search_frame, text="Open in Explorer", command=self.open_in_explorer)
         #self.open_in_explorer_button.place(x=540, y=584, height=34, width=120)
         #self.open_in_explorer_button.pack()
-        self.open_in_explorer_button.grid()
+        #self.open_in_explorer_button.grid()
 
         self.delete_selected_button = CTkButton(search_frame, text=self.languages[self.current_language]["delete_selected"], command=self.delete_selected)
         #self.delete_selected_button.place(x=700, y=584, height=34, width=120)
@@ -437,32 +468,38 @@ class ImSearch:
         self.upload_image_button.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
         # Row 1: Search Mode
-        CTkLabel(search_frame, text=self.languages[self.current_language]["search_mode"] + ":").grid(
-            row=1, column=0, sticky="w", padx=(0, 5))
-        self.search_combobox.grid(row=1, column=1, sticky="ew", pady=2)
+        self.search_mode_label = CTkLabel(search_frame, text=self.languages[self.current_language]["search_mode"] + ":").grid(
+            row=1, column=0, sticky="w", padx=(2, 5))
+        self.search_combobox.grid(row=1, column=1, sticky="ew", padx=2, pady=2)
         self.search_combobox.set("Vector Similarity")
 
         # Row 2: Similarity Threshold
-        CTkLabel(search_frame, text=self.languages[self.current_language]["similarity_threshold"] + ":").grid(
-            row=2, column=0, sticky="w", padx=(0, 5), pady=2)
+        self.similarity_threshold_label = CTkLabel(search_frame, text=self.languages[self.current_language]["similarity_threshold"] + ":").grid(
+            row=2, column=0, sticky="w", padx=(2, 5), pady=2)
 
         # Create a container frame for spinbox and percentage label
         sim_frame = CTkFrame(search_frame, fg_color=bg_color)
-        sim_frame.grid(row=2, column=1, sticky="ew", pady=2)
+        sim_frame.grid(row=2, column=1, sticky="ew", padx=2, pady=2)
 
         # Configure columns in the sim_frame
         sim_frame.columnconfigure(0, weight=0)  # Don't expand spinbox column
         sim_frame.columnconfigure(1, weight=0)  # Fixed width for percentage
 
-        self.sim = tk.Spinbox(sim_frame, from_=0, to=100, width=8, justify='center', bg="gray13", fg="gray84")
-        self.sim.grid(row=0, column=0, sticky="e", padx=(0, 2))  # Right-aligned with small padding
-        self.sim.delete(0, "end")
-        self.sim.insert(0, "50")
+        self.sim = CustomSpinbox.CustomSpinbox(
+            sim_frame,
+            width=102,  # Width in pixels (adjust as needed)
+            height=32,  # Height in pixels
+            step_size=1,
+            from_=0,
+            to=100
+        )
+        self.sim.grid(row=0, column=0, sticky="e", padx=(0, 2))
+        self.sim.set(50)  # Set initial value to 50 instead of delete/insert
 
         CTkLabel(sim_frame, text="%").grid(row=0, column=1, sticky="w", padx=(2, 0))
 
         # Row 3: Subfolders Checkbutton
-        self.subfolder_button.grid(row=3, column=0, columnspan=2, sticky="w", pady=5)
+        self.subfolder_button.grid(row=3, column=0, columnspan=2, sticky="w", padx=2, pady=5)
 
         # Row 4: Search Buttons
         self.start_search_button.grid(row=4, column=0, sticky="ew", padx=2, pady=2)
@@ -470,7 +507,7 @@ class ImSearch:
 
         # Row 5: File Operations
         self.show_images_button.grid(row=7, column=0, sticky="ew", padx=2, pady=2)
-        self.open_in_explorer_button.grid(row=5, column=1, sticky="ew", padx=2, pady=2)
+        self.open_in_explorer_button.grid(row=7, column=1, sticky="ew", padx=2, pady=2)
 
         # Row 6: Additional Actions
         self.process_button.grid(row=3, column=1, sticky="ew", padx=2, pady=2)
@@ -482,11 +519,7 @@ class ImSearch:
         search_frame.columnconfigure(0, weight=1)
         search_frame.columnconfigure(1, weight=1)
 
-        # Uniform padding
-        for child in search_frame.winfo_children():
-            child.grid_configure(padx=5, pady=3)
-
-        self.search_combobox.configure(width=20)
+        #self.search_combobox.configure(width=20)
         #self.subfolder_button.configure(padding=5)
 
         search_frame.grid_columnconfigure(0, weight=1, minsize=160)
@@ -526,6 +559,42 @@ class ImSearch:
     #             self.root.geometry(f"1000x{event.height}")
     #         if event.height < 600:
     #             self.root.geometry(f"{event.width}x600")
+
+        # self.tree.column("#0", width=200, stretch=tk.NO)
+        # self.tree.column("File", width=300)
+        # self.tree.column("Size", width=100, anchor=tk.E)
+        # self.tree.column("Dimensions", width=100, anchor=tk.CENTER)
+        # self.tree.column("Hash", width=150)
+
+    def update_canvas_colors(self):
+        """Update canvas colors based on current system theme"""
+        current_mode = ctk.get_appearance_mode()
+
+        if current_mode == "Dark":
+            bg_color = "gray90"
+            highlight_color = "gray70"
+
+        else:  # Light mode
+            bg_color = "gray13"
+            highlight_color = "gray28"
+
+        # Update canvas colors
+        self.canvas_uploaded.configure(
+            bg=bg_color,
+            highlightbackground=highlight_color
+        )
+        self.canvas_selected.configure(
+            bg=bg_color,
+            highlightbackground=highlight_color
+        )
+
+    def start_theme_monitor(self):
+        """Check for theme changes every 500ms"""
+        current_mode = ctk.get_appearance_mode()
+        if current_mode != self.last_appearance_mode:
+            self.update_canvas_colors()
+            self.last_appearance_mode = current_mode
+        self.root.after(500, self.start_theme_monitor)
 
     def reset_ui(self):
         self.progress["value"] = 0
@@ -677,7 +746,7 @@ class ImSearch:
         self.canvas_uploaded.bind("<Configure>", self.handle_canvas_resize)
         self.handle_canvas_resize(canvas=self.canvas_uploaded)
 
-    def display_selected(self, event):
+    def display_selected(self):
         selected_items = self.tree.selection()
         if not selected_items:
             return
@@ -1116,7 +1185,7 @@ class ImSearch:
             elapsed = time.time() - start_time
             self.root.after(0, lambda: (
                 self.tree.delete(*self.tree.get_children()),
-                [self.tree.insert("", tk.END, values=(path, f"{similarity:.2f}%"))
+                [self.tree.insert("", tk.END, values=(path, f"{similarity:.2f}"))
                  for path, similarity in sorted(results, key=lambda x: -x[1])],
                 self.status.set(f"Found {len(results)} matches in {elapsed:.2f}s"),
                 self.progress.__setitem__("value", 0),
@@ -1278,65 +1347,190 @@ class ImSearch:
         self._duplicate_pairs_thread()
 
     def _duplicate_pairs_thread(self):
-        """Threaded duplicate group search with optimized grouping"""
+        """Threaded duplicate group search with sorting and group metrics"""
         start_time = time.time()
         self.tree.delete(*self.tree.get_children())
+
+        # Configure treeview appearance and columns
+        self._configure_treeview()
+        total_files = len(self.list_files(self.added_folders, self.subfolders.get() == 1))
+        self.progress["maximum"] = total_files
+
+        # Configure treeview tags and columns
+        self.tree.tag_configure('group_header', background='#4a7a8c', foreground='white',
+                                font=('Helvetica', 10, 'bold'))
+        self.tree.tag_configure('file_item', background='#f0f0f0', font=('Helvetica', 9))
+        self.tree.tag_configure('alt_item', background='white', font=('Helvetica', 9))
+
+        # Configure columns with proper widths
+        self.tree["columns"] = ("File", "Size", "Dimensions")
+        self.tree.column("#0", width=250, stretch=tk.NO)
+        self.tree.column("File", width=400)
+        self.tree.column("Size", width=100, anchor=tk.E)
+        self.tree.column("Dimensions", width=100, anchor=tk.CENTER)
 
         include_subfolders = self.subfolders.get() == 1
         files = self.list_files(self.added_folders, include_subfolders)
         hash_groups = {}
 
         # Phase 1: Group files by hash
-        with ThreadPoolExecutor(max_workers=os.cpu_count() * 2) as executor:
-            future_to_file = {executor.submit(calculate_image_hash, file): file for file in files}
-            processed = 0
+        hash_groups = {}
+        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            futures = {executor.submit(self._process_file, file): file for file in
+                       self.list_files(self.added_folders, self.subfolders.get() == 1)}
 
-            for future in future_to_file:
+            for idx, future in enumerate(as_completed(futures), 1):
                 if self.stop_search_flag.is_set():
                     break
-
-                file = future_to_file[future]
-                try:
-                    file_hash = future.result()
-                    if file_hash in hash_groups:
-                        hash_groups[file_hash].append(file)
-                    else:
-                        hash_groups[file_hash] = [file]
-
-                    processed += 1
-                    if processed % 100 == 0:
-                        self.progress["value"] = processed
-                        self.status.set(f"Processed {processed}/{len(files)} files")
-                        self.root.update_idletasks()
-
-                except Exception as e:
-                    print(f"Error processing {file}: {str(e)}")
+                file_hash, file_size, file_path = future.result()
+                hash_groups.setdefault(file_hash, []).append((file_path, file_size))
+                self._update_progress(idx, total_files)
 
         # Phase 2: Insert groups into Treeview hierarchically
-        group_id = 0
-        for file_hash, group in hash_groups.items():
-            if len(group) >= 2:
-                if len(group) == 2:
-                    # Insert as direct pair in columns 1 and 2
-                    self.tree.insert("", "end", values=(group[0], group[1]))
-                else:
-                    # Create parent node with first two files preview
-                    parent = self.tree.insert(
-                        "", "end",
-                        text=f"Group {group_id + 1} ({len(group)} duplicates)",
-                        values=(group[0], group[1])
-                    )
-                    # Add children with individual paths
-                    for file in group:
-                        self.tree.insert(parent, "end", values=(file, ""))
-                    group_id += 1
+        duplicate_group_count = 0
+        for group_id, (file_hash, group) in enumerate(hash_groups.items(), 1):
+            if len(group) < 2:
+                continue
+
+            duplicate_group_count += 1
+            total_size = sum(size for _, size in group)
+            group_header = (
+                f"Group {duplicate_group_count} - "
+                f"{len(group)} files ({self._human_readable_size(total_size)})"
+            )
+
+            parent = self.tree.insert(
+                "", "end", text=group_header,
+                values=(file_hash, total_size, len(group)),
+                tags=('group_header',)
+            )
+
+            for idx, (file_path, file_size) in enumerate(sorted(group), 1):
+                with Image.open(file_path) as img:
+                    dimensions = f"{img.width}x{img.height}"
+
+                self.tree.insert(
+                    parent, "end",
+                    values=(
+                        file_path,
+                        file_size,  # Raw size for sorting
+                        self._human_readable_size(file_size),
+                        dimensions,
+                        img.width,
+                        img.height
+                    ),
+                    tags=('file_item',)
+                )
+
+        for col in ["Size", "Dimensions", "File"]:
+            self.tree.heading(col, command=lambda c=col: self._sort_tree(c))
 
         elapsed_time = time.time() - start_time
-        self.status.set(f"Found {len(hash_groups)} groups in {elapsed_time:.2f}s")
+        status_msg = f"Found {duplicate_group_count} duplicate groups ({len(files)} files scanned) in {elapsed_time:.2f}s"
+        self.status.set(status_msg)
         self.progress["value"] = 0
         self.stop_search_button.configure(state=tk.DISABLED)
-
         self.search_thread = None
+
+        self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
+
+    def _configure_treeview(self):
+        """Configure treeview columns and appearance"""
+        self.tree["columns"] = ("File", "Size", "DisplaySize", "Dimensions", "Width", "Height")
+        self.tree.column("#0", width=300, stretch=tk.NO)
+        self.tree.column("File", width=400)
+        self.tree.column("Size", width=0, stretch=tk.NO)  # Hidden raw size
+        self.tree.column("DisplaySize", width=100, anchor=tk.E)
+        self.tree.column("Dimensions", width=100)
+        self.tree.column("Width", width=0, stretch=tk.NO)  # Hidden
+        self.tree.column("Height", width=0, stretch=tk.NO)  # Hidden
+
+        self.tree.heading("#0", text="Group Header")
+        self.tree.heading("File", text="File Path")
+        self.tree.heading("DisplaySize", text="Size")
+        self.tree.heading("Dimensions", text="Dimensions")
+
+        self.tree.tag_configure('group_header', background='#4a7a8c',
+                                foreground='white', font=('Helvetica', 10, 'bold'))
+
+    def _human_readable_size(self, size_bytes):
+        """Convert bytes to human-readable format without external dependencies"""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.1f} TB"
+
+    def _sort_tree(self, column):
+        """Sort tree items by column"""
+        converter = {
+            "Size": float,
+            "DisplaySize": lambda x: float(x.rstrip(' BKMGT')),
+            "Dimensions": lambda x: tuple(map(int, x.split('x'))),
+            "Width": int,
+            "Height": int
+        }
+
+        # Get current sort order and reverse it
+        reverse = self.tree.heading(column)["direction"] == "asc"
+        self.tree.heading(column, command=lambda: self._sort_tree(column))
+
+        # Sort the items
+        items = [(self.tree.set(child, column), child)
+                 for child in self.tree.get_children('')]
+        items.sort(key=lambda x: converter.get(column, str)(x[0]), reverse=reverse)
+
+        for index, (_, child) in enumerate(items):
+            self.tree.move(child, '', index)
+
+        # Update heading arrow
+        self.tree.heading(column, direction="desc" if reverse else "asc")
+
+    def _on_tree_select(self, event):
+        """Handle selection for image preview"""
+        selected = self.tree.selection()
+        if not selected:
+            return
+
+        item = self.tree.item(selected[0])
+        if self.tree.parent(selected[0]):  # Child item
+            file_path = item["values"][0]
+        else:  # Group header - get first child
+            children = self.tree.get_children(selected[0])
+            if children:
+                file_path = self.tree.item(children[0])["values"][0]
+            else:
+                return
+
+        self.display_selected()
+
+    def _process_file(self, file_path):
+        """Thread-safe file processing with error handling"""
+        try:
+            file_hash = calculate_image_hash(file_path)
+            file_size = os.path.getsize(file_path)
+            return (file_hash, file_size, file_path)
+        except Exception as e:
+            return (None, 0, file_path)
+
+    # def _on_tree_select(self, event):
+    #     """Handle group header clicks to show first image"""
+    #     selected = self.tree.selection()
+    #     if not selected:
+    #         return
+    #
+    #     item = self.tree.item(selected[0])
+    #
+    #     # Check if it's a group header (has children)
+    #     children = self.tree.get_children(selected[0])
+    #     if children:
+    #         # Get first child's file path
+    #         first_child = self.tree.item(children[0])
+    #         file_path = first_child['values'][0]
+    #         self.display_selected(file_path)
+    #     else:
+    #         # Regular file item
+    #         self.display_selected()
 
     def _initialize_sift(self):
         """Initialize SIFT detector with version checking"""
@@ -1375,9 +1569,9 @@ class ImSearch:
         self.search_thread.start()
 
     def _sift_compare_thread(self, files, max_workers):
-        start_time = time.time()
         processed_count = 0
         files_found = 0  # Track matching files
+        start_time = time.time()
 
         sift = cv2.SIFT_create(contrastThreshold=0.07, edgeThreshold=10)
         query_img = cv2.imread(self.target_image_path, cv2.IMREAD_GRAYSCALE)
@@ -1402,7 +1596,6 @@ class ImSearch:
                     file, bf, des1, MIN_MATCHES, RATIO_THRESH
                 ))
 
-            # Process completed tasks and update progress
             for future in as_completed(futures):
                 if self.stop_search_flag.is_set():
                     for f in futures:
@@ -1412,19 +1605,20 @@ class ImSearch:
                 processed_count += 1
                 self.progress["value"] = processed_count
 
+                try:
+                    result = future.result()
+                    if result:
+                        files_found += 1
+                        # Update GUI in main thread
+                        self.tree.insert("", tk.END, values=result)
+                except Exception as e:
+                    continue
+
                 self.status.set(
                     f"Analyzing files ({processed_count}/{total_files}) - "
                     f"{files_found} matches found"
                 )
                 self.root.update_idletasks()
-
-                try:
-                    result = future.result()
-                    if result:
-                        files_found += 1
-                        self.tree.insert("", tk.END, values=result)
-                except Exception as e:
-                    continue
 
         elapsed_time = time.time() - start_time
         stop_status = "stopped" if self.stop_search_flag.is_set() else "completed"
@@ -1438,40 +1632,6 @@ class ImSearch:
         self.stop_search_button.configure(state=tk.DISABLED)
         self.stop_search_flag.clear()
         self.search_thread = None
-
-    # def _process_sift_file(self, file, bf, des1, min_matches, ratio_thresh):
-    #     if self.stop_search_flag.is_set():
-    #         return None
-    #
-    #     try:
-    #         target_img = cv2.imread(str(file), cv2.IMREAD_GRAYSCALE)
-    #         if target_img is None:
-    #             return None
-    #
-    #         # Check stop flag before heavy computation
-    #         if self.stop_search_flag.is_set():
-    #             return None
-    #
-    #         sift = cv2.SIFT_create(contrastThreshold=0.01, edgeThreshold=5)
-    #         kp2, des2 = sift.detectAndCompute(target_img, None)
-    #
-    #         if des2 is None or len(des2) < min_matches:
-    #             return None
-    #
-    #         matches = bf.knnMatch(des1, des2, k=2)
-    #         good = []
-    #         for m, n in matches:
-    #             if m.distance < ratio_thresh * n.distance:
-    #                 good.append(m)
-    #             if self.stop_search_flag.is_set():
-    #                 return None
-    #
-    #         if len(good) < min_matches:
-    #             return None
-    #
-    #     except Exception as e:
-    #         print(f"Error processing {file}: {str(e)}")
-    #     return None
 
     def _process_sift_file(self, file, bf, des1, min_matches, ratio_thresh):
         if self.stop_search_flag.is_set():
@@ -1500,13 +1660,13 @@ class ImSearch:
                 if self.stop_search_flag.is_set():
                     return None
 
-            if len(good) < min_matches:
-                return None
+            if len(good) >= min_matches:
+                similarity = len(good) / len(des1)
+                if similarity * 100 >= int(self.sim.get()):
+                    # Return data instead of modifying GUI here
+                    return (str(file), f"{similarity * 100:.2f}")
 
-            # Calculate similarity score (example: ratio of good matches to total query features)
-            similarity = len(good) / len(des1)
-            if similarity*100 >= int(self.sim.get()):
-                self.tree.insert("", tk.END, values=(file, f"{similarity*100:.2f}"))
+            return None  # Explicit return if no match
 
         except Exception as e:
             print(f"Error processing {file}: {str(e)}")
@@ -1516,13 +1676,15 @@ class ImSearch:
         start_time = time.time()
         analyzed_files_count = 0
         files_found = 0
+        total_files = len(files)
         for count, file in enumerate(files, start=1):
             analyzed_files_count += 1
             if self.stop_search_flag.is_set():
                 self.status.set(f"Search stopped by user. {analyzed_files_count} files analyzed")
                 break
 
-            self.status.set(f"Analyzing ({count}/{len(files)}) - {files_found} matches found")
+            self.status.set(f"Analyzing files ({analyzed_files_count}/{total_files}) - "
+                    f"{files_found} matches found")
             self.root.update_idletasks()
 
             if Image.open(self.target_image_path).width == Image.open(file).width and Image.open(self.target_image_path).height == Image.open(file).height:
@@ -1536,7 +1698,7 @@ class ImSearch:
                 # Compute SSIM between two images
                 score, diff = structural_similarity(first_gray, second_gray, full=True)
                 if score*100 >= int(self.sim.get()):
-                    self.tree.insert("", tk.END, values=(file, f"{score*100:.2f}%"))
+                    self.tree.insert("", tk.END, values=(file, f"{score*100:.2f}"))
                     files_found += 1
 
                 # The diff image contains the actual image differences between the two images
@@ -1798,7 +1960,6 @@ class ImSearch:
         self.folder_down_button.configure(text=self.languages[language]["folder_down"])
         self.upload_image_button.configure(text=self.languages[language]["upload_image"])
         self.search_mode_label.configure(text=self.languages[language]["search_mode"])
-        self.search_settings_label.configure(text=self.languages[language]["search_settings"])
         self.similarity_threshold_label.configure(text=self.languages[language]["similarity_threshold"])
         self.delete_selected_button.configure(text=self.languages[language]["delete_selected"])
         self.subfolder_button.configure(text=self.languages[language]["search_subfolders"])
@@ -1857,7 +2018,7 @@ def findSimilar5(self, img_path, folder_path, method):
 if __name__ == "__main__":
     match len(sys.argv):
         case 1:
-            root = customtkinter.CTk()
+            root = ctk.CTk()
             app = ImSearch(root)
             root.mainloop()
         case 4:
