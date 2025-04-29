@@ -17,6 +17,10 @@ import csv
 import customtkinter as ctk
 from customtkinter import CTk, CTkFrame, CTkButton, CTkLabel, CTkEntry, CTkScrollbar, CTkComboBox, CTkCheckBox, StringVar, IntVar, CTkProgressBar
 
+import threading
+from queue import Queue
+from send2trash import send2trash
+
 import darkdetect
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -124,8 +128,6 @@ class ImSearch:
 
         self.vector_extractor = FeatureExtractor()
         self.vectors = []
-
-        self.duplicate_groups = {}
 
         self.feature_cache = {}  # {file: (kp, des)}
         self.cache_version = "1.0"
@@ -265,14 +267,13 @@ class ImSearch:
         # select image button
         self.upload_image_button = CTkButton(search_frame, text=self.languages[self.current_language]["upload_image"], command=self.upload_query_image)
         #self.upload_image_button.place(x=496, y=122, height=52, width=374)
-        self.upload_image_button.grid(row=0, column=0, sticky="nw", padx=1, pady=1)
 
         #self.sim.place(x=650, y=282, height=20, width=32)
         #tk.Label(search_frame, text="%", fg="black").place(x=682, y=283, height=20, width=10)
         #tk.Label(search_frame, text="%", fg="black").pack()
         #tk.Label(search_frame, text="%", fg="black").grid()
 
-        self.search_combobox = CTkComboBox(search_frame, values=["Vector Similarity", "Histogram Similarity", "Find Duplicates", "Duplicate Pairs", "SSIM Compare", "SIFT Compare"], state="readonly")
+        self.search_combobox = CTkComboBox(search_frame, values=["Vector Similarity", "Histogram Similarity", "Find Duplicates", "Duplicate Groups", "SSIM Compare", "SIFT Compare"], state="readonly")
         #self.search_combobox.place(x=650, y=192, height=34, width=220)
         #self.search_combobox.pack()
         #self.search_combobox.grid()
@@ -438,17 +439,14 @@ class ImSearch:
         self.save_button = CTkButton(search_frame, text="Save Results", command=self.save_results)
         #self.save_button.place(x=708, y=500, height=40, width=100)
         #self.save_button.pack()
-        self.save_button.grid()
 
         self.load_button = CTkButton(search_frame, text="Load Results", command=self.load_results)
         #self.load_button.place(x=604, y=500, height=40, width=100)
         #self.load_button.pack()
-        self.load_button.grid()
 
         self.show_images_button = CTkButton(search_frame, text="Show in full size", command=self.show_images)
         #self.show_images_button.place(x=496, y=440, height=40, width=374)
         #self.show_images_button.pack()
-        self.show_images_button.grid()
 
         self.open_in_explorer_button = CTkButton(search_frame, text="Open in Explorer", command=self.open_in_explorer)
         #self.open_in_explorer_button.place(x=540, y=584, height=34, width=120)
@@ -458,7 +456,8 @@ class ImSearch:
         self.delete_selected_button = CTkButton(search_frame, text=self.languages[self.current_language]["delete_selected"], command=self.delete_selected)
         #self.delete_selected_button.place(x=700, y=584, height=34, width=120)
         #self.delete_selected_button.pack()
-        self.delete_selected_button.grid()
+        self.delete_queue = Queue()
+        self.deletion_thread = None
 
         search_frame.grid(row=1, column=1, sticky="nsew", padx=10, pady=10)
         search_frame.columnconfigure(1, weight=1)
@@ -667,23 +666,80 @@ class ImSearch:
     def stop_search(self):
         self.stop_search_flag.set()
 
+    # def delete_selected(self):
+    #     selected_item = self.tree.selection()
+    #     if not selected_item:
+    #         messagebox.showinfo("Info", "No image selected")
+    #         return
+    #
+    #     selected_file = self.tree.item(selected_item)['values'][0]
+    #     confirmation = messagebox.askyesno("Confirm",
+    #                                        f"Do you really want to delete {selected_file}? The file will be deleted from disk")
+    #
+    #     if confirmation:
+    #         try:
+    #             os.remove(selected_file)
+    #             self.tree.delete(selected_item)
+    #             messagebox.showinfo("Info", f"Image {selected_file} has been deleted.")
+    #         except Exception as e:
+    #             messagebox.showerror("Error", f"Failed to delete image: {str(e)}")
+
     def delete_selected(self):
-        selected_item = self.tree.selection()
-        if not selected_item:
-            messagebox.showinfo("Info", "No image selected")
+        selected_items = self.tree.selection()
+        if not selected_items:
+            messagebox.showinfo("Info", "No items selected")
             return
 
-        selected_file = self.tree.item(selected_item)['values'][0]
-        confirmation = messagebox.askyesno("Confirm",
-                                           f"Do you really want to delete {selected_file}? The file will be deleted from disk")
+        confirmation = messagebox.askyesno(
+            "Confirm",
+            f"Move {len(selected_items)} files to Recycle Bin?\n"
+            "Files can be restored from Recycle Bin if needed."
+        )
 
         if confirmation:
+            # Store items and paths before starting thread
+            delete_list = [(item, self.tree.item(item)['values'][0])
+                           for item in selected_items]
+
+            # Start background deletion thread
+            self.deletion_thread = threading.Thread(
+                target=self._process_deletions,
+                args=(delete_list,),
+                daemon=True
+            )
+            self.deletion_thread.start()
+
+            # Start monitoring the queue
+            self._monitor_deletion_queue()
+
+    def _process_deletions(self, delete_list):
+        """Background thread: Handle actual file operations"""
+        for item, file_path in delete_list:
             try:
-                os.remove(selected_file)
-                self.tree.delete(selected_item)
-                messagebox.showinfo("Info", f"Image {selected_file} has been deleted.")
+                # Universal Recycle Bin handling
+                send2trash(file_path)
+                self.delete_queue.put(('success', item, file_path))
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to delete image: {str(e)}")
+                self.delete_queue.put(('error', item, f"{file_path}: {str(e)}"))
+
+        self.delete_queue.put(('done', None, None))
+
+    def _monitor_deletion_queue(self):
+        """Main thread: Process deletion results from queue"""
+        while not self.delete_queue.empty():
+            result_type, item, data = self.delete_queue.get()
+
+            if result_type == 'success':
+                self.tree.delete(item)
+            elif result_type == 'error':
+                messagebox.showerror("Deletion Error", data)
+
+            self.delete_queue.task_done()
+            self.root.update_idletasks()
+
+        # Check again after 100ms if not done
+        if self.deletion_thread.is_alive():
+            self.root.after(100, self._monitor_deletion_queue)
 
     def handle_canvas_resize(self, event=None, canvas=None):
         """Handle resizing of images in canvases while maintaining aspect ratio"""
@@ -769,7 +825,7 @@ class ImSearch:
             except Exception as e:
                 print(f"Error displaying {file_path}: {str(e)}")
 
-        if current_mode == "Duplicate Pairs":
+        if current_mode == "Duplicate Groups":
             children = self.tree.get_children(selected_item)
             if children:
                 file_paths = []
@@ -851,11 +907,11 @@ class ImSearch:
         # Existing condition checks remain unchanged
         has_folders = bool(self.added_folders)
 
-        if self.search_combobox.get() == "Duplicate Pairs" and not has_folders:
+        if self.search_combobox.get() == "Duplicate Groups" and not has_folders:
             tk.messagebox.showinfo("Info", "Please add search folders.")
-        elif not self.query_image and has_folders and self.search_combobox.get() != "Duplicate Pairs":
+        elif not self.query_image and has_folders and self.search_combobox.get() != "Duplicate Groups":
             tk.messagebox.showinfo("Info", "No file selected. Upload query image to start the search")
-        elif not self.query_image and not has_folders and self.search_combobox.get() != "Duplicate Pairs":
+        elif not self.query_image and not has_folders and self.search_combobox.get() != "Duplicate Groups":
             tk.messagebox.showinfo("Info", "Please add folders and select a query image.")
         elif self.query_image and not has_folders:
             tk.messagebox.showinfo("Info", "Please add search folders.")
@@ -883,8 +939,8 @@ class ImSearch:
                 self.search_thread = threading.Thread(target=self.search_histogram,
                                                       args=(self.files_list, hist1))
                 self.search_thread.start()
-            elif search_type == "Duplicate Pairs":
-                self.search_thread = threading.Thread(target=self.duplicate_pairs)
+            elif search_type == "Duplicate Groups":
+                self.search_thread = threading.Thread(target=self.duplicate_groups)
                 self.search_thread.start()
             elif search_type == "SSIM Compare":
                 self.search_thread = threading.Thread(target=self.ssim_compare,
@@ -1079,7 +1135,7 @@ class ImSearch:
     def _update_progress(self, current, total):
         """Thread-safe progress update"""
         self.progress["value"] = current
-        self.status.set(f"Processed {current}/{total} folders")
+        self.status.set(f"Processed {current}/{total} files")
 
     def _get_folder_structure(self, folders, include_subfolders):
         """Get ordered list of folders with hierarchy"""
@@ -1334,7 +1390,7 @@ class ImSearch:
 
         self.search_thread = None
 
-    def duplicate_pairs(self):
+    def duplicate_groups(self):
         """Find all duplicate groups in the dataset using hash grouping"""
         if not self.added_folders:
             tk.messagebox.showinfo("Info", "Please select a folder.")
@@ -1343,71 +1399,62 @@ class ImSearch:
         self.status.set("Searching for duplicate groups...")
         self.progress['value'] = 0
 
-        # Thread management now handled in run_search
-        self._duplicate_pairs_thread()
+        # self.tree.tag_configure('even_group', background='#f0f0f0')
+        # self.tree.tag_configure('odd_group', background='white')
 
-    def _duplicate_pairs_thread(self):
+        # Thread management now handled in run_search
+        self._duplicate_groups_thread()
+
+    def _duplicate_groups_thread(self):
         """Threaded duplicate group search with sorting and group metrics"""
         start_time = time.time()
         self.tree.delete(*self.tree.get_children())
 
         # Configure treeview appearance and columns
         self._configure_treeview()
-        total_files = len(self.list_files(self.added_folders, self.subfolders.get() == 1))
-        self.progress["maximum"] = total_files
-
-        # Configure treeview tags and columns
-        self.tree.tag_configure('group_header', background='#4a7a8c', foreground='white',
-                                font=('Helvetica', 10, 'bold'))
-        self.tree.tag_configure('file_item', background='#f0f0f0', font=('Helvetica', 9))
-        self.tree.tag_configure('alt_item', background='white', font=('Helvetica', 9))
-
-        # Configure columns with proper widths
-        self.tree["columns"] = ("File", "Size", "Dimensions")
-        self.tree.column("#0", width=250, stretch=tk.NO)
-        self.tree.column("File", width=400)
-        self.tree.column("Size", width=100, anchor=tk.E)
-        self.tree.column("Dimensions", width=100, anchor=tk.CENTER)
+        files = self.list_files(self.added_folders, self.subfolders.get() == 1)
+        self.progress["maximum"] = len(files)
 
         include_subfolders = self.subfolders.get() == 1
         files = self.list_files(self.added_folders, include_subfolders)
-        hash_groups = {}
 
         # Phase 1: Group files by hash
         hash_groups = {}
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-            futures = {executor.submit(self._process_file, file): file for file in
-                       self.list_files(self.added_folders, self.subfolders.get() == 1)}
-
+            futures = {executor.submit(self._process_file, file): file for file in files}
             for idx, future in enumerate(as_completed(futures), 1):
                 if self.stop_search_flag.is_set():
                     break
                 file_hash, file_size, file_path = future.result()
-                hash_groups.setdefault(file_hash, []).append((file_path, file_size))
-                self._update_progress(idx, total_files)
+                if file_hash:
+                    hash_groups.setdefault(file_hash, {'files': [], 'total_size': 0})
+                    hash_groups[file_hash]['files'].append((file_path, file_size))
+                    hash_groups[file_hash]['total_size'] += file_size
+                self._update_progress(idx, len(files))
 
         # Phase 2: Insert groups into Treeview hierarchically
-        duplicate_group_count = 0
-        for group_id, (file_hash, group) in enumerate(hash_groups.items(), 1):
-            if len(group) < 2:
-                continue
+        sorted_groups = sorted(
+            [group for group in hash_groups.values() if len(group['files']) >= 2],
+            key=lambda x: x['total_size'],
+            reverse=True
+        )
 
-            duplicate_group_count += 1
-            total_size = sum(size for _, size in group)
-            group_header = (
-                f"Group {duplicate_group_count} - "
-                f"{len(group)} files ({self._human_readable_size(total_size)})"
-            )
-
+        for group_idx, group in enumerate(sorted_groups, 1):
             parent = self.tree.insert(
-                "", "end", text=group_header,
-                values=(file_hash, total_size, len(group)),
-                tags=('group_header',)
+                "", "end",
+                text=f"Group {group_idx} - {self._human_readable_size(group['total_size'])} "
+                     f"({len(group['files'])} files)",
+                values=(group['total_size'],),  # Hidden raw size for sorting
+                tags=('group_header',),
+                open=True
             )
 
-            for idx, (file_path, file_size) in enumerate(sorted(group), 1):
-                with Image.open(file_path) as img:
-                    dimensions = f"{img.width}x{img.height}"
+            for file_idx, (file_path, file_size) in enumerate(sorted(group['files']), 1):
+                try:
+                    with Image.open(file_path) as img:
+                        dimensions = f"{img.width}x{img.height}"
+                except:
+                    dimensions = "N/A"
 
                 self.tree.insert(
                     parent, "end",
@@ -1415,19 +1462,21 @@ class ImSearch:
                         file_path,
                         file_size,  # Raw size for sorting
                         self._human_readable_size(file_size),
-                        dimensions,
-                        img.width,
-                        img.height
+                        dimensions
                     ),
-                    tags=('file_item',)
+                    tags=(f'{"even" if file_idx % 2 else "odd"}_row',)
                 )
+
+        # Configure column sorting
+        #self.tree.heading("DisplaySize", command=lambda: self._sort_by_column("Size"))
+        self.status.set(f"Found {len(sorted_groups)} duplicate groups")
+        self.progress["value"] = 0
 
         for col in ["Size", "Dimensions", "File"]:
             self.tree.heading(col, command=lambda c=col: self._sort_tree(c))
 
         elapsed_time = time.time() - start_time
-        status_msg = f"Found {duplicate_group_count} duplicate groups ({len(files)} files scanned) in {elapsed_time:.2f}s"
-        self.status.set(status_msg)
+        self.status.set(f"Found {len(sorted_groups)} duplicate groups")
         self.progress["value"] = 0
         self.stop_search_button.configure(state=tk.DISABLED)
         self.search_thread = None
@@ -1435,22 +1484,20 @@ class ImSearch:
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
 
     def _configure_treeview(self):
-        """Configure treeview columns and appearance"""
-        self.tree["columns"] = ("File", "Size", "DisplaySize", "Dimensions", "Width", "Height")
+        """Configure treeview columns with proper formatting"""
+        self.tree["columns"] = ("File", "Size", "DisplaySize", "Dimensions")
         self.tree.column("#0", width=300, stretch=tk.NO)
-        self.tree.column("File", width=400)
+        self.tree.column("File", width=300)
         self.tree.column("Size", width=0, stretch=tk.NO)  # Hidden raw size
-        self.tree.column("DisplaySize", width=100, anchor=tk.E)
-        self.tree.column("Dimensions", width=100)
-        self.tree.column("Width", width=0, stretch=tk.NO)  # Hidden
-        self.tree.column("Height", width=0, stretch=tk.NO)  # Hidden
+        self.tree.column("DisplaySize", width=100, anchor="center")
+        self.tree.column("Dimensions", width=100, anchor="center")
 
         self.tree.heading("#0", text="Group Header")
         self.tree.heading("File", text="File Path")
         self.tree.heading("DisplaySize", text="Size")
         self.tree.heading("Dimensions", text="Dimensions")
 
-        self.tree.tag_configure('group_header', background='#4a7a8c',
+        self.tree.tag_configure('group_header', background='#3a7ebf',
                                 foreground='white', font=('Helvetica', 10, 'bold'))
 
     def _human_readable_size(self, size_bytes):
@@ -1485,6 +1532,16 @@ class ImSearch:
 
         # Update heading arrow
         self.tree.heading(column, direction="desc" if reverse else "asc")
+
+    def _sort_by_column(self, column):
+        """Sort groups by total size or files by individual size"""
+        if column == "Size":
+            items = [(self.tree.set(child, "Size"), child)
+                     for child in self.tree.get_children('')]
+            items.sort(key=lambda x: float(x[0]), reverse=True)
+
+            for index, (_, child) in enumerate(items):
+                self.tree.move(child, '', index)
 
     def _on_tree_select(self, event):
         """Handle selection for image preview"""
@@ -1853,7 +1910,7 @@ class ImSearch:
             if pos > -1:
                 selected_file_path = selected_file_path[:pos]
 
-            if self.search_combobox == "Duplicate Pairs" and self.target_image_path is None:
+            if self.search_combobox == "Duplicate Groups" and self.target_image_path is None:
                 target_image_pil = Image.open(self.tree.item(selected_item)['values'][0])
             else:
                 target_image_pil = Image.open(self.target_image_path)
