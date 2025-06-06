@@ -1,6 +1,9 @@
+import json
 import tkinter as tk
 import os, sys
 import hashlib
+from collections import defaultdict
+
 import cv2
 from pathlib import Path
 import time
@@ -125,6 +128,7 @@ class ImSearch:
         self.analyzed_files_count = 0
 
         self.quick_hash_cache = {}
+        self._dimension_cache = {}
 
         self.vector_extractor = FeatureExtractor()
         self.vectors = []
@@ -298,7 +302,7 @@ class ImSearch:
         #self.subfolder_button.grid()
         self.process_button = ctk.CTkButton(
             search_frame,
-            text="Process Folder",
+            text="Process Folders",
             fg_color=("#FFD700", "#FFA500"),  # Yellow/Orange (light/dark)
             hover_color=("#FFC800", "#FF8C00"),
             text_color=("black", "white"),  # Dark text in light mode, white in dark
@@ -469,7 +473,6 @@ class ImSearch:
         # Row 1: Search Mode
         self.search_mode_label = CTkLabel(search_frame, text=self.languages[self.current_language]["search_mode"] + ":")
         self.search_mode_label.grid(row=1, column=0, sticky="w", padx=(2, 5))
-
         self.search_combobox.grid(row=1, column=1, sticky="ew", padx=2, pady=2)
         self.search_combobox.set("Vector Similarity")
 
@@ -691,39 +694,111 @@ class ImSearch:
             messagebox.showinfo("Info", "No items selected")
             return
 
-        confirmation = messagebox.askyesno(
-            "Confirm",
-            f"Move {len(selected_items)} files to Recycle Bin?\n"
-            "Files can be restored from Recycle Bin if needed."
-        )
+        # Collect all deletable items and track groups
+        delete_candidates = []
+        group_tracker = defaultdict(list)
 
-        if confirmation:
-            # Store items and paths before starting thread
-            delete_list = [(item, self.tree.item(item)['values'][0])
-                           for item in selected_items]
+        for item in selected_items:
+            parent = self.tree.parent(item)
+            if not parent:
+                # Group header selected - delete all children
+                children = self.tree.get_children(item)
+                delete_candidates.extend(children)
+                group_tracker[item].extend(children)
+            else:
+                # File item selected
+                delete_candidates.append(item)
+                if parent:
+                    group_tracker[parent].append(item)
 
-            # Start background deletion thread
-            self.deletion_thread = threading.Thread(
-                target=self._process_deletions,
-                args=(delete_list,),
-                daemon=True
-            )
-            self.deletion_thread.start()
+        if not delete_candidates:
+            messagebox.showinfo("Info", "No deletable files selected")
+            return
 
-            # Start monitoring the queue
-            self._monitor_deletion_queue()
+        # Show confirmation dialog
+        confirm_msg = f"Move {len(delete_candidates)} files to Recycle Bin?\n"
+        confirm_msg += "This action cannot be undone."
 
-    def _process_deletions(self, delete_list):
-        """Background thread: Handle actual file operations"""
+        if not messagebox.askyesno("Confirm Deletion", confirm_msg):
+            return
+
+        # Process deletions
+        success_count = 0
+        errors = []
+
+        for item in delete_candidates:
+            try:
+                file_path = self.tree.item(item)['values'][0]
+                send2trash.send2trash(file_path)
+
+                # Remove from treeview
+                self.tree.delete(item)
+                success_count += 1
+
+                # Update parent group if needed
+                parent = self.tree.parent(item)
+                if parent and self.tree.exists(parent):
+                    self._update_group_header(parent)
+
+            except Exception as e:
+                errors.append(f"{file_path}: {str(e)}")
+
+        # Clean up empty groups
+        for group in list(group_tracker.keys()):
+            if self.tree.exists(group) and not self.tree.get_children(group):
+                self.tree.delete(group)
+
+        # Show results
+        result_msg = []
+        if success_count:
+            result_msg.append(f"Successfully deleted {success_count} files")
+        if errors:
+            result_msg.append("\nErrors:")
+            result_msg.extend(errors)
+
+        messagebox.showinfo("Results", "\n".join(result_msg))
+
+    def _process_deletions(self, delete_list, group_updates):
+        """Handle deletions and group updates"""
         for item, file_path in delete_list:
             try:
-                # Universal Recycle Bin handling
                 send2trash(file_path)
-                self.delete_queue.put(('success', item, file_path))
+                self.tree.delete(item)
             except Exception as e:
-                self.delete_queue.put(('error', item, f"{file_path}: {str(e)}"))
+                messagebox.showerror("Error", f"Failed to delete {file_path}: {str(e)}")
 
-        self.delete_queue.put(('done', None, None))
+        # Update remaining groups
+        for parent in group_updates:
+            if parent and self.tree.exists(parent):
+                children = self.tree.get_children(parent)
+                if children:
+                    # Update group header with new count and size
+                    total_size = sum(self.tree.item(child)['values'][1] for child in children)
+                    self.tree.item(parent,
+                                   text=f"Group {self.tree.index(parent) + 1} - "
+                                        f"{self._human_readable_size(total_size)} "
+                                        f"({len(children)} files)",
+                                   values=(total_size,)
+                                   )
+                else:
+                    self.tree.delete(parent)
+
+    def _update_group_header(self, parent):
+        """Update group header after file deletions"""
+        children = self.tree.get_children(parent)
+        if not children:
+            return
+
+        # Recalculate group size
+        total_size = sum(self.tree.item(child)['values'][1] for child in children)
+
+        # Update header text
+        self.tree.item(parent,
+                       text=f"Group {self.tree.index(parent) + 1} - "
+                            f"{self._human_readable_size(total_size)} "
+                            f"({len(children)} files)",
+                       values=(total_size,)
+                       )
 
     def _monitor_deletion_queue(self):
         """Main thread: Process deletion results from queue"""
@@ -1407,181 +1482,213 @@ class ImSearch:
         self._duplicate_groups_thread()
 
     def _duplicate_groups_thread(self):
-        """Threaded duplicate group search with sorting and group metrics"""
+        """Threaded processing with accurate progress and group sizes"""
         start_time = time.time()
-        self.root.after(0, lambda: self.tree.delete(*self.tree.get_children()))
-        self.root.after(0, self._configure_treeview)
+        self.tree.delete(*self.tree.get_children())
+        self._configure_treeview()  # Ensure columns are properly configured
 
-        include_subfolders = self.subfolders.get() == 1
-        files = self.list_files(self.added_folders, include_subfolders)
-        self.root.after(0, lambda: self.progress.configure(maximum=len(files)))
+        # File processing phase
+        files = self.list_files(self.added_folders, self.subfolders.get() == 1)
+        total_files = len(files)
+        self.progress["maximum"] = total_files
 
-        # Phase 1: Group files by hash
+        # Phase 1: Hashing and grouping
         hash_groups = {}
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
             futures = {executor.submit(self._process_file, file): file for file in files}
+
             for idx, future in enumerate(as_completed(futures), 1):
                 if self.stop_search_flag.is_set():
                     break
+
                 file_hash, file_size, file_path = future.result()
                 if file_hash:
                     hash_groups.setdefault(file_hash, {'files': [], 'total_size': 0})
                     hash_groups[file_hash]['files'].append((file_path, file_size))
                     hash_groups[file_hash]['total_size'] += file_size
 
-                # Fix: Capture current idx value in local variable
-                current_idx = idx
-                total_files = len(files)
-                self.root.after(0, lambda: self._update_progress(current_idx, total_files))
+                # Update progress every 25 files
+                if idx % 25 == 0:
+                    self.progress["value"] = idx
+                    self.status.set(f"Processing files ({idx}/{total_files})")
+                    self.root.update_idletasks()
 
-        # Phase 2: Prepare groups for display
-        sorted_groups = sorted(
-            [group for group in hash_groups.values() if len(group['files']) >= 2],
-            key=lambda x: x['total_size'],
-            reverse=True
-        )
+        # Prepare groups and update progress range
+        valid_groups = [g for g in hash_groups.values() if len(g['files']) >= 2]
+        sorted_groups = sorted(valid_groups, key=lambda x: x['total_size'], reverse=True)
+        total_work = total_files + len(sorted_groups)
+        self.progress["maximum"] = total_work
+        self.progress["value"] = total_files
 
-        # Calculate elapsed time for status message
-        elapsed_time = time.time() - start_time
-        status_message = f"Found {len(sorted_groups)} duplicate groups in {elapsed_time:.2f}s"
-
-        # Execute GUI updates in main thread
-        self.root.after(0, lambda: self._finalize_duplicate_search(sorted_groups, status_message))
-
-    def _finalize_duplicate_search(self, sorted_groups, status_message):
-        """Finalize GUI updates after duplicate search"""
-        # Insert groups into Treeview hierarchically
+        # Phase 2: Insert groups with progress updates
         for group_idx, group in enumerate(sorted_groups, 1):
             parent = self.tree.insert(
                 "", "end",
-                text=f"Group {group_idx} - {self._human_readable_size(group['total_size'])} "
-                     f"({len(group['files'])} files)",
-                values=(group['total_size'],),
+                text=f"📁 Group {group_idx} ({len(group['files'])} files)",
+                values=(
+                    self._human_readable_size(group['total_size']),
+                    f"Total: {self._human_readable_size(group['total_size'])}",
+                    # Convert Path objects to strings before JSON serialization
+                    json.dumps([str(fp) for fp, _ in group['files']])
+                ),
                 tags=('group_header',),
                 open=True
             )
 
-            for file_idx, (file_path, file_size) in enumerate(sorted(group['files']), 1):
-                try:
-                    with Image.open(file_path) as img:
-                        dimensions = f"{img.width}x{img.height}"
-                except:
-                    dimensions = "N/A"
-
+            # Modified file insertion
+            for file_path, file_size in group['files']:
                 self.tree.insert(
                     parent, "end",
+                    text=os.path.basename(str(file_path)),  # Convert Path to string
                     values=(
-                        file_path,
-                        file_size,
+                        str(file_path),  # Store as string in values[0]
                         self._human_readable_size(file_size),
-                        dimensions
+                        self._get_dimensions_lazy(file_path)
                     ),
-                    tags=(f'{"even" if file_idx % 2 else "odd"}_row',)
+                    tags=('file_item',)
                 )
+            self.root.update_idletasks()
 
-        # Configure column sorting
-        #for col in ["Size", "Dimensions", "File"]:
+            # Final cleanup and connection to image display
+        self.root.after(0, lambda: self.tree.bind("<<TreeviewSelect>>", self.display_selected()))
+        self.root.after(0, lambda: self.status.set(f"Found {len(sorted_groups)} groups"))
+        self.root.after(0, lambda: self.progress.config(value=0))
 
-        # Update status and reset UI
-        self.status.set(status_message)
+    def pause_refresh(self):
+        """Context manager to suppress widget redraws"""
+
+        class RefreshPauser:
+            def __init__(self, widget):
+                self.widget = widget
+
+            def __enter__(self):
+                self.widget.configure(displaycolumns=[])
+                self.widget._pause_refresh = True
+
+            def __exit__(self, *args):
+                self.widget.configure(displaycolumns=self.widget["columns"])
+                del self.widget._pause_refresh
+                self.widget.update_idletasks()
+
+        return RefreshPauser(self.tree)
+
+    def _get_dimensions_lazy(self, file_path):
+        """Get cached image dimensions with error handling"""
+        if file_path not in self._dimension_cache:
+            try:
+                with Image.open(file_path) as img:
+                    self._dimension_cache[file_path] = f"{img.width}x{img.height}"
+            except Exception as e:
+                self._dimension_cache[file_path] = "N/A"
+        return self._dimension_cache[file_path]
+
+    def _insert_group(self, group, group_idx):
+        """Insert a single group with periodic GUI updates"""
+        parent = self.tree.insert(
+            "", "end",
+            text=f"Group {group_idx} - {self._human_readable_size(group['total_size'])} "
+                 f"({len(group['files'])} files)",
+            values=(group['total_size'],),
+            tags=('group_header',),
+            open=True
+        )
+
+        # Insert files in smaller chunks
+        file_chunk_size = 50
+        for idx, (file_path, file_size) in enumerate(group['files']):
+            self._insert_file(parent, file_path, file_size, idx)
+
+            # Update GUI every chunk
+            if idx % file_chunk_size == 0:
+                self.root.update_idletasks()
+                self._process_pending_events()
+
+    def _insert_file(self, parent, file_path, file_size, idx):
+        """Insert a single file item"""
+        try:
+            with Image.open(file_path) as img:
+                dimensions = f"{img.width}x{img.height}"
+        except Exception:
+            dimensions = "N/A"
+
+        self.tree.insert(
+            parent, "end",
+            values=(file_path, file_size,
+                    self._human_readable_size(file_size), dimensions),
+            tags=(f'{"even" if idx % 2 else "odd"}_row',)
+        )
+
+    def _process_pending_events(self):
+        """Process pending GUI events without blocking"""
+        self.root.update_idletasks()
+        while self.root.dooneevent(tk._tkinter.DONT_WAIT):
+            pass
+
+    def _update_progress(self, current, total):
+        """Thread-safe progress update"""
+        self.progress["value"] = current
+        self.status.set(f"Processed {current}/{total} files "
+                        f"({(current / total) * 100:.1f}%)")
+
+    def _finalize_search(self, group_count, start_time):
+        """Final search cleanup"""
+        elapsed_time = time.time() - start_time
+        self.status.set(f"Found {group_count} groups in {elapsed_time:.1f}s")
         self.progress["value"] = 0
         self.stop_search_button.configure(state=tk.DISABLED)
         self.search_thread = None
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
 
-    # def _duplicate_groups_thread(self):
-    #     """Threaded duplicate group search with sorting and group metrics"""
-    #     start_time = time.time()
-    #     self.tree.delete(*self.tree.get_children())
-    #
-    #     # Configure treeview appearance and columns
-    #     self._configure_treeview()
-    #     files = self.list_files(self.added_folders, self.subfolders.get() == 1)
-    #     self.progress["maximum"] = len(files)
-    #
-    #     include_subfolders = self.subfolders.get() == 1
-    #     files = self.list_files(self.added_folders, include_subfolders)
-    #
-    #     # Phase 1: Group files by hash
-    #     hash_groups = {}
-    #     with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-    #         futures = {executor.submit(self._process_file, file): file for file in files}
-    #         for idx, future in enumerate(as_completed(futures), 1):
-    #             if self.stop_search_flag.is_set():
-    #                 break
-    #             file_hash, file_size, file_path = future.result()
-    #             if file_hash:
-    #                 hash_groups.setdefault(file_hash, {'files': [], 'total_size': 0})
-    #                 hash_groups[file_hash]['files'].append((file_path, file_size))
-    #                 hash_groups[file_hash]['total_size'] += file_size
-    #             self._update_progress(idx, len(files))
-    #
-    #     # Phase 2: Insert groups into Treeview hierarchically
-    #     sorted_groups = sorted(
-    #         [group for group in hash_groups.values() if len(group['files']) >= 2],
-    #         key=lambda x: x['total_size'],
-    #         reverse=True
-    #     )
-    #
-    #     for group_idx, group in enumerate(sorted_groups, 1):
-    #         parent = self.tree.insert(
-    #             "", "end",
-    #             text=f"Group {group_idx} - {self._human_readable_size(group['total_size'])} "
-    #                  f"({len(group['files'])} files)",
-    #             values=(group['total_size'],),  # Hidden raw size for sorting
-    #             tags=('group_header',),
-    #             open=True
-    #         )
-    #
-    #         for file_idx, (file_path, file_size) in enumerate(sorted(group['files']), 1):
-    #             try:
-    #                 with Image.open(file_path) as img:
-    #                     dimensions = f"{img.width}x{img.height}"
-    #             except:
-    #                 dimensions = "N/A"
-    #
-    #             self.tree.insert(
-    #                 parent, "end",
-    #                 values=(
-    #                     file_path,
-    #                     file_size,  # Raw size for sorting
-    #                     self._human_readable_size(file_size),
-    #                     dimensions
-    #                 ),
-    #                 tags=(f'{"even" if file_idx % 2 else "odd"}_row',)
-    #             )
-    #
-    #     # Configure column sorting
-    #     #self.tree.heading("DisplaySize", command=lambda: self._sort_by_column("Size"))
-    #     self.status.set(f"Found {len(sorted_groups)} duplicate groups")
-    #     self.progress["value"] = 0
-    #
-    #     for col in ["Size", "Dimensions", "File"]:
-    #         self.tree.heading(col, command=lambda c=col: self._sort_tree(c))
-    #
-    #     elapsed_time = time.time() - start_time
-    #     self.status.set(f"Found {len(sorted_groups)} duplicate groups")
-    #     self.progress["value"] = 0
-    #     self.stop_search_button.configure(state=tk.DISABLED)
-    #     self.search_thread = None
-    #
-    #     self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
+    def _get_dimensions_lazy(self, file_path):
+        """Cache dimensions and load only when needed"""
+        if not hasattr(self, '_dimension_cache'):
+            self._dimension_cache = {}
+
+        if file_path not in self._dimension_cache:
+            try:
+                with Image.open(file_path) as img:
+                    self._dimension_cache[file_path] = f"{img.width}x{img.height}"
+            except:
+                self._dimension_cache[file_path] = "N/A"
+
+        return self._dimension_cache[file_path]
+
+    def pause_refresh(self):
+        """Context manager to suppress widget redraws"""
+
+        class RefreshPauser:
+            def __init__(self, widget):
+                self.widget = widget
+
+            def __enter__(self):
+                self.widget.configure(displaycolumns=[])
+                self.widget._pause_refresh = True
+
+            def __exit__(self, *args):
+                self.widget.configure(displaycolumns=self.widget["columns"])
+                del self.widget._pause_refresh
+                self.widget.update_idletasks()
+
+        return RefreshPauser(self.tree)
 
     def _configure_treeview(self):
-        """Configure treeview columns with proper formatting"""
-        self.tree["columns"] = ("File", "Size", "DisplaySize", "Dimensions")
-        self.tree.column("#0", width=300, stretch=tk.NO)
-        self.tree.column("File", width=300)
-        self.tree.column("Size", width=0, stretch=tk.NO)  # Hidden raw size
-        self.tree.column("DisplaySize", width=100, anchor="center")
-        self.tree.column("Dimensions", width=100, anchor="center")
+        """Proper treeview setup with visible group headers"""
+        self.tree["columns"] = ("Size", "Dimensions")
 
-        self.tree.heading("#0", text="Group Header")
-        self.tree.heading("File", text="File Path")
-        self.tree.heading("DisplaySize", text="Size")
-        self.tree.heading("Dimensions", text="Dimensions")
+        # Main tree column (groups/files)
+        self.tree.column("#0", width=400, stretch=tk.NO, anchor=tk.W)
+        self.tree.heading("#0", text="Path/Group", anchor=tk.W)
 
-        self.tree.tag_configure('group_header', background='#3a7ebf',
+        # Size column
+        self.tree.column("Size", width=120, anchor=tk.E)
+        self.tree.heading("Size", text="Size", anchor=tk.E)
+
+        # Dimensions column
+        self.tree.column("Dimensions", width=150, anchor=tk.CENTER)
+        self.tree.heading("Dimensions", text="Dimensions", anchor=tk.CENTER)
+
+        # Style configuration
+        self.tree.tag_configure('group_header', background='#4a7a8c',
                                 foreground='white', font=('Helvetica', 10, 'bold'))
 
     def _human_readable_size(self, size_bytes):
@@ -1592,30 +1699,30 @@ class ImSearch:
             size_bytes /= 1024.0
         return f"{size_bytes:.1f} TB"
 
-    # def _sort_tree(self, column):
-    #     """Sort tree items by column"""
-    #     converter = {
-    #         "Size": float,
-    #         "DisplaySize": lambda x: float(x.rstrip(' BKMGT')),
-    #         "Dimensions": lambda x: tuple(map(int, x.split('x'))),
-    #         "Width": int,
-    #         "Height": int
-    #     }
-    #
-    #     # Get current sort order and reverse it
-    #     reverse = self.tree.heading(column)["direction"] == "asc"
-    #     self.tree.heading(column, command=lambda: self._sort_tree(column))
-    #
-    #     # Sort the items
-    #     items = [(self.tree.set(child, column), child)
-    #              for child in self.tree.get_children('')]
-    #     items.sort(key=lambda x: converter.get(column, str)(x[0]), reverse=reverse)
-    #
-    #     for index, (_, child) in enumerate(items):
-    #         self.tree.move(child, '', index)
-    #
-    #     # Update heading arrow
-    #     self.tree.heading(column, direction="desc" if reverse else "asc")
+    def _sort_tree(self, column):
+        """Sort tree items by column"""
+        converter = {
+            "Size": float,
+            "DisplaySize": lambda x: float(x.rstrip(' BKMGT')),
+            "Dimensions": lambda x: tuple(map(int, x.split('x'))),
+            "Width": int,
+            "Height": int
+        }
+
+        # Get current sort order and reverse it
+        reverse = self.tree.heading(column)["direction"] == "asc"
+        self.tree.heading(column, command=lambda: self._sort_tree(column))
+
+        # Sort the items
+        items = [(self.tree.set(child, column), child)
+                 for child in self.tree.get_children('')]
+        items.sort(key=lambda x: converter.get(column, str)(x[0]), reverse=reverse)
+
+        for index, (_, child) in enumerate(items):
+            self.tree.move(child, '', index)
+
+        # Update heading arrow
+        self.tree.heading(column, direction="desc" if reverse else "asc")
 
     def _sort_by_column(self, column):
         """Sort groups by total size or files by individual size"""
@@ -1628,22 +1735,59 @@ class ImSearch:
                 self.tree.move(child, '', index)
 
     def _on_tree_select(self, event):
-        """Handle selection for image preview"""
+        """Handle tree selection changes and trigger image display"""
         selected = self.tree.selection()
         if not selected:
             return
 
         item = self.tree.item(selected[0])
-        if self.tree.parent(selected[0]):  # Child item
-            file_path = item["values"][0]
-        else:  # Group header - get first child
-            children = self.tree.get_children(selected[0])
-            if children:
-                file_path = self.tree.item(children[0])["values"][0]
-            else:
-                return
+        tags = self.tree.item(selected[0], 'tags')
 
-        self.display_selected()
+        if 'group_header' in tags:
+            file_list = json.loads(item['values'][2])
+            # Convert back to Path objects if needed
+            file_list = [Path(fp) for fp in file_list]
+            self.display_group_images(file_list)
+        elif 'file_item' in tags:
+            file_path = Path(item['values'][0])  # Convert back to Path
+            self.display_single_image(file_path)
+
+    def display_group_images(self, file_list):
+        """Display first two images from a group"""
+        if len(file_list) > 0:
+            self.display_image(file_list[0], self.canvas_uploaded)
+        if len(file_list) > 1:
+            self.display_image(file_list[1], self.canvas_selected)
+
+    def display_single_image(self, file_path):
+        """Display single image in right canvas"""
+        self.display_image(file_path, self.canvas_selected)
+
+    def show_image_preview(self, path):
+        """Display image on canvas with proper threading"""
+        try:
+            # Load image in background thread
+            threading.Thread(target=self._load_image_for_preview, args=(path,), daemon=True).start()
+        except Exception as e:
+            print(f"Preview error: {str(e)}")
+
+    def _load_image_for_preview(self, path):
+        """Thread-safe image loading"""
+        try:
+            img = Image.open(path)
+            img.thumbnail((400, 400))
+            photo = ImageTk.PhotoImage(img)
+
+            # Update GUI in main thread
+            self.root.after(0, lambda: self._update_canvas(photo))
+        except Exception as e:
+            print(f"Can't load {path}: {str(e)}")
+
+    def _update_canvas(self, photo_image):
+        """Update canvas with new image"""
+        self.preview_canvas.delete("all")
+        self.preview_canvas.create_image(0, 0, anchor=tk.NW, image=photo_image)
+        self.preview_canvas.image = photo_image  # Keep reference
 
     def _process_file(self, file_path):
         """Thread-safe file processing with error handling"""
@@ -2010,8 +2154,8 @@ class ImSearch:
             frame_selected.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
             # Create canvases
-            canvas_target = tk.Canvas(frame_uploaded, bg="white", relief=tk.SUNKEN)
-            canvas_selected = tk.Canvas(frame_selected, bg="white", relief=tk.SUNKEN)
+            canvas_target = tk.Canvas(frame_uploaded, bg="dark-grey", relief=tk.SUNKEN)
+            canvas_selected = tk.Canvas(frame_selected, bg="dark-grey", relief=tk.SUNKEN)
             canvas_target.pack(fill=tk.BOTH, expand=True)
             canvas_selected.pack(fill=tk.BOTH, expand=True)
 
@@ -2100,25 +2244,25 @@ class ImSearch:
         self.folder_up_button.configure(text=self.languages[language]["folder_up"])
         self.folder_down_button.configure(text=self.languages[language]["folder_down"])
         self.upload_image_button.configure(text=self.languages[language]["upload_image"])
-        self.search_mode_label.configure(text=self.languages[language]["search_mode"] + ":")  # Add colon
-        self.similarity_threshold_label.configure(
-            text=self.languages[language]["similarity_threshold"] + ":")  # Add colon
+        self.search_mode_label.configure(text=self.languages[language]["search_mode"])
+        self.similarity_threshold_label.configure(text=self.languages[language]["similarity_threshold"])
         self.delete_selected_button.configure(text=self.languages[language]["delete_selected"])
         self.subfolder_button.configure(text=self.languages[language]["search_subfolders"])
         self.start_search_button.configure(text=self.languages[language]["start_search"])
         self.stop_search_button.configure(text=self.languages[language]["stop_search"])
 
-        # Update language menu label WITHOUT recreating the entire menu
-        menubar = self.root.winfo_toplevel().nametowidget("!menu")  # Get existing menu
-        settings_menu = menubar.nametowidget(menubar.entrycget(0, "menu"))  # Get "Settings" menu
+        # Update language menu label
+        menubar = self.root.winfo_toplevel().config(menu=None)
+        menubar = Menu(self.root)
+        self.root.config(menu=menubar)
+        settings_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Settings", menu=settings_menu)
 
-        # Update the "Language" cascade label
-        settings_menu.entryconfig(0, label=self.languages[language]["language"])
-
-        # Update individual language menu items (optional, if you want translated language names)
-        language_menu = settings_menu.nametowidget(settings_menu.entrycget(0, "menu"))
-        for i, lang in enumerate(self.languages.keys()):
-            language_menu.entryconfig(i, label=self.languages[lang]["language_name"])
+        # Rebuild language menu with updated text
+        language_menu = Menu(settings_menu, tearoff=0)
+        for lang in self.languages.keys():
+            language_menu.add_command(label=lang, command=lambda: self.change_language(lang))
+        settings_menu.add_cascade(label=self.languages[self.current_language]["language"], menu=language_menu)
 
 
 #run from terminal, experimental
