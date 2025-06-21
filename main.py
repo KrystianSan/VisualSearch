@@ -467,14 +467,15 @@ class ImSearch:
         self.upload_image_button.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
         # Row 1: Search Mode
-        self.search_mode_label = CTkLabel(search_frame, text=self.languages[self.current_language]["search_mode"] + ":").grid(
-            row=1, column=0, sticky="w", padx=(2, 5))
+        self.search_mode_label = CTkLabel(search_frame, text=self.languages[self.current_language]["search_mode"] + ":")
+        self.search_mode_label.grid(row=1, column=0, sticky="w", padx=(2, 5))
+
         self.search_combobox.grid(row=1, column=1, sticky="ew", padx=2, pady=2)
         self.search_combobox.set("Vector Similarity")
 
         # Row 2: Similarity Threshold
-        self.similarity_threshold_label = CTkLabel(search_frame, text=self.languages[self.current_language]["similarity_threshold"] + ":").grid(
-            row=2, column=0, sticky="w", padx=(2, 5), pady=2)
+        self.similarity_threshold_label = CTkLabel(search_frame, text=self.languages[self.current_language]["similarity_threshold"] + ":")
+        self.similarity_threshold_label.grid(row=2, column=0, sticky="w", padx=(2, 5), pady=2)
 
         # Create a container frame for spinbox and percentage label
         sim_frame = CTkFrame(search_frame, fg_color=bg_color)
@@ -1408,15 +1409,12 @@ class ImSearch:
     def _duplicate_groups_thread(self):
         """Threaded duplicate group search with sorting and group metrics"""
         start_time = time.time()
-        self.tree.delete(*self.tree.get_children())
-
-        # Configure treeview appearance and columns
-        self._configure_treeview()
-        files = self.list_files(self.added_folders, self.subfolders.get() == 1)
-        self.progress["maximum"] = len(files)
+        self.root.after(0, lambda: self.tree.delete(*self.tree.get_children()))
+        self.root.after(0, self._configure_treeview)
 
         include_subfolders = self.subfolders.get() == 1
         files = self.list_files(self.added_folders, include_subfolders)
+        self.root.after(0, lambda: self.progress.configure(maximum=len(files)))
 
         # Phase 1: Group files by hash
         hash_groups = {}
@@ -1430,21 +1428,35 @@ class ImSearch:
                     hash_groups.setdefault(file_hash, {'files': [], 'total_size': 0})
                     hash_groups[file_hash]['files'].append((file_path, file_size))
                     hash_groups[file_hash]['total_size'] += file_size
-                self._update_progress(idx, len(files))
 
-        # Phase 2: Insert groups into Treeview hierarchically
+                # Fix: Capture current idx value in local variable
+                current_idx = idx
+                total_files = len(files)
+                self.root.after(0, lambda: self._update_progress(current_idx, total_files))
+
+        # Phase 2: Prepare groups for display
         sorted_groups = sorted(
             [group for group in hash_groups.values() if len(group['files']) >= 2],
             key=lambda x: x['total_size'],
             reverse=True
         )
 
+        # Calculate elapsed time for status message
+        elapsed_time = time.time() - start_time
+        status_message = f"Found {len(sorted_groups)} duplicate groups in {elapsed_time:.2f}s"
+
+        # Execute GUI updates in main thread
+        self.root.after(0, lambda: self._finalize_duplicate_search(sorted_groups, status_message))
+
+    def _finalize_duplicate_search(self, sorted_groups, status_message):
+        """Finalize GUI updates after duplicate search"""
+        # Insert groups into Treeview hierarchically
         for group_idx, group in enumerate(sorted_groups, 1):
             parent = self.tree.insert(
                 "", "end",
                 text=f"Group {group_idx} - {self._human_readable_size(group['total_size'])} "
                      f"({len(group['files'])} files)",
-                values=(group['total_size'],),  # Hidden raw size for sorting
+                values=(group['total_size'],),
                 tags=('group_header',),
                 open=True
             )
@@ -1460,7 +1472,7 @@ class ImSearch:
                     parent, "end",
                     values=(
                         file_path,
-                        file_size,  # Raw size for sorting
+                        file_size,
                         self._human_readable_size(file_size),
                         dimensions
                     ),
@@ -1468,20 +1480,92 @@ class ImSearch:
                 )
 
         # Configure column sorting
-        #self.tree.heading("DisplaySize", command=lambda: self._sort_by_column("Size"))
-        self.status.set(f"Found {len(sorted_groups)} duplicate groups")
-        self.progress["value"] = 0
+        #for col in ["Size", "Dimensions", "File"]:
 
-        for col in ["Size", "Dimensions", "File"]:
-            self.tree.heading(col, command=lambda c=col: self._sort_tree(c))
-
-        elapsed_time = time.time() - start_time
-        self.status.set(f"Found {len(sorted_groups)} duplicate groups")
+        # Update status and reset UI
+        self.status.set(status_message)
         self.progress["value"] = 0
         self.stop_search_button.configure(state=tk.DISABLED)
         self.search_thread = None
-
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
+
+    # def _duplicate_groups_thread(self):
+    #     """Threaded duplicate group search with sorting and group metrics"""
+    #     start_time = time.time()
+    #     self.tree.delete(*self.tree.get_children())
+    #
+    #     # Configure treeview appearance and columns
+    #     self._configure_treeview()
+    #     files = self.list_files(self.added_folders, self.subfolders.get() == 1)
+    #     self.progress["maximum"] = len(files)
+    #
+    #     include_subfolders = self.subfolders.get() == 1
+    #     files = self.list_files(self.added_folders, include_subfolders)
+    #
+    #     # Phase 1: Group files by hash
+    #     hash_groups = {}
+    #     with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+    #         futures = {executor.submit(self._process_file, file): file for file in files}
+    #         for idx, future in enumerate(as_completed(futures), 1):
+    #             if self.stop_search_flag.is_set():
+    #                 break
+    #             file_hash, file_size, file_path = future.result()
+    #             if file_hash:
+    #                 hash_groups.setdefault(file_hash, {'files': [], 'total_size': 0})
+    #                 hash_groups[file_hash]['files'].append((file_path, file_size))
+    #                 hash_groups[file_hash]['total_size'] += file_size
+    #             self._update_progress(idx, len(files))
+    #
+    #     # Phase 2: Insert groups into Treeview hierarchically
+    #     sorted_groups = sorted(
+    #         [group for group in hash_groups.values() if len(group['files']) >= 2],
+    #         key=lambda x: x['total_size'],
+    #         reverse=True
+    #     )
+    #
+    #     for group_idx, group in enumerate(sorted_groups, 1):
+    #         parent = self.tree.insert(
+    #             "", "end",
+    #             text=f"Group {group_idx} - {self._human_readable_size(group['total_size'])} "
+    #                  f"({len(group['files'])} files)",
+    #             values=(group['total_size'],),  # Hidden raw size for sorting
+    #             tags=('group_header',),
+    #             open=True
+    #         )
+    #
+    #         for file_idx, (file_path, file_size) in enumerate(sorted(group['files']), 1):
+    #             try:
+    #                 with Image.open(file_path) as img:
+    #                     dimensions = f"{img.width}x{img.height}"
+    #             except:
+    #                 dimensions = "N/A"
+    #
+    #             self.tree.insert(
+    #                 parent, "end",
+    #                 values=(
+    #                     file_path,
+    #                     file_size,  # Raw size for sorting
+    #                     self._human_readable_size(file_size),
+    #                     dimensions
+    #                 ),
+    #                 tags=(f'{"even" if file_idx % 2 else "odd"}_row',)
+    #             )
+    #
+    #     # Configure column sorting
+    #     #self.tree.heading("DisplaySize", command=lambda: self._sort_by_column("Size"))
+    #     self.status.set(f"Found {len(sorted_groups)} duplicate groups")
+    #     self.progress["value"] = 0
+    #
+    #     for col in ["Size", "Dimensions", "File"]:
+    #         self.tree.heading(col, command=lambda c=col: self._sort_tree(c))
+    #
+    #     elapsed_time = time.time() - start_time
+    #     self.status.set(f"Found {len(sorted_groups)} duplicate groups")
+    #     self.progress["value"] = 0
+    #     self.stop_search_button.configure(state=tk.DISABLED)
+    #     self.search_thread = None
+    #
+    #     self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
 
     def _configure_treeview(self):
         """Configure treeview columns with proper formatting"""
@@ -1508,30 +1592,30 @@ class ImSearch:
             size_bytes /= 1024.0
         return f"{size_bytes:.1f} TB"
 
-    def _sort_tree(self, column):
-        """Sort tree items by column"""
-        converter = {
-            "Size": float,
-            "DisplaySize": lambda x: float(x.rstrip(' BKMGT')),
-            "Dimensions": lambda x: tuple(map(int, x.split('x'))),
-            "Width": int,
-            "Height": int
-        }
-
-        # Get current sort order and reverse it
-        reverse = self.tree.heading(column)["direction"] == "asc"
-        self.tree.heading(column, command=lambda: self._sort_tree(column))
-
-        # Sort the items
-        items = [(self.tree.set(child, column), child)
-                 for child in self.tree.get_children('')]
-        items.sort(key=lambda x: converter.get(column, str)(x[0]), reverse=reverse)
-
-        for index, (_, child) in enumerate(items):
-            self.tree.move(child, '', index)
-
-        # Update heading arrow
-        self.tree.heading(column, direction="desc" if reverse else "asc")
+    # def _sort_tree(self, column):
+    #     """Sort tree items by column"""
+    #     converter = {
+    #         "Size": float,
+    #         "DisplaySize": lambda x: float(x.rstrip(' BKMGT')),
+    #         "Dimensions": lambda x: tuple(map(int, x.split('x'))),
+    #         "Width": int,
+    #         "Height": int
+    #     }
+    #
+    #     # Get current sort order and reverse it
+    #     reverse = self.tree.heading(column)["direction"] == "asc"
+    #     self.tree.heading(column, command=lambda: self._sort_tree(column))
+    #
+    #     # Sort the items
+    #     items = [(self.tree.set(child, column), child)
+    #              for child in self.tree.get_children('')]
+    #     items.sort(key=lambda x: converter.get(column, str)(x[0]), reverse=reverse)
+    #
+    #     for index, (_, child) in enumerate(items):
+    #         self.tree.move(child, '', index)
+    #
+    #     # Update heading arrow
+    #     self.tree.heading(column, direction="desc" if reverse else "asc")
 
     def _sort_by_column(self, column):
         """Sort groups by total size or files by individual size"""
@@ -2016,25 +2100,25 @@ class ImSearch:
         self.folder_up_button.configure(text=self.languages[language]["folder_up"])
         self.folder_down_button.configure(text=self.languages[language]["folder_down"])
         self.upload_image_button.configure(text=self.languages[language]["upload_image"])
-        self.search_mode_label.configure(text=self.languages[language]["search_mode"])
-        self.similarity_threshold_label.configure(text=self.languages[language]["similarity_threshold"])
+        self.search_mode_label.configure(text=self.languages[language]["search_mode"] + ":")  # Add colon
+        self.similarity_threshold_label.configure(
+            text=self.languages[language]["similarity_threshold"] + ":")  # Add colon
         self.delete_selected_button.configure(text=self.languages[language]["delete_selected"])
         self.subfolder_button.configure(text=self.languages[language]["search_subfolders"])
         self.start_search_button.configure(text=self.languages[language]["start_search"])
         self.stop_search_button.configure(text=self.languages[language]["stop_search"])
 
-        # Update language menu label
-        menubar = self.root.winfo_toplevel().config(menu=None)
-        menubar = Menu(self.root)
-        self.root.config(menu=menubar)
-        settings_menu = Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Settings", menu=settings_menu)
+        # Update language menu label WITHOUT recreating the entire menu
+        menubar = self.root.winfo_toplevel().nametowidget("!menu")  # Get existing menu
+        settings_menu = menubar.nametowidget(menubar.entrycget(0, "menu"))  # Get "Settings" menu
 
-        # Rebuild language menu with updated text
-        language_menu = Menu(settings_menu, tearoff=0)
-        for lang in self.languages.keys():
-            language_menu.add_command(label=lang, command=lambda: self.change_language(lang))
-        settings_menu.add_cascade(label=self.languages[self.current_language]["language"], menu=language_menu)
+        # Update the "Language" cascade label
+        settings_menu.entryconfig(0, label=self.languages[language]["language"])
+
+        # Update individual language menu items (optional, if you want translated language names)
+        language_menu = settings_menu.nametowidget(settings_menu.entrycget(0, "menu"))
+        for i, lang in enumerate(self.languages.keys()):
+            language_menu.entryconfig(i, label=self.languages[lang]["language_name"])
 
 
 #run from terminal, experimental
