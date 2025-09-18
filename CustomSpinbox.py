@@ -1,5 +1,5 @@
-import tkinter as tk
 import customtkinter as ctk
+
 
 class CustomSpinbox(ctk.CTkFrame):
     def __init__(self, master, width=100, height=32, step_size=1, from_=0, to=100,
@@ -18,7 +18,7 @@ class CustomSpinbox(ctk.CTkFrame):
             width=width - (height * 2),
             height=height,
             border_width=0,
-            justify='left'
+            justify='center'
         )
         self.entry.grid(row=0, column=0, sticky="ew", padx=(0, 2))
         self.entry.insert(0, str(from_))
@@ -39,8 +39,7 @@ class CustomSpinbox(ctk.CTkFrame):
             anchor="center",
             font=("Arial", int(height // 4))
         )
-        self.up_btn.grid(row=0, column=0, sticky="nsew")#, padx=(1, 0))
-
+        self.up_btn.grid(row=0, column=0, sticky="nsew", padx=(1, 0))
 
         # Down Button
         self.down_btn = ctk.CTkButton(
@@ -52,7 +51,7 @@ class CustomSpinbox(ctk.CTkFrame):
             anchor="center",
             font=("Arial", int(height // 4))
         )
-        self.down_btn.grid(row=1, column=0, sticky="nsew")#, padx=(1, 0), pady=(1, 0))
+        self.down_btn.grid(row=1, column=0, sticky="nsew", padx=(1, 0), pady=(1, 0))
 
         # Validation
         vcmd = (self.register(self._validate_input), '%P')
