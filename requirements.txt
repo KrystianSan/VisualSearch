@@ -5,6 +5,10 @@ opencv-python>=4.8.0
 scikit-image>=0.21.0
 numpy>=1.24.0
 pandas>=2.0.0
+# PyTorch — install separately BEFORE running pip install -r requirements.txt
+# CPU-only (recommended): pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# GPU (CUDA 12.1):        pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# Windows users: run setup.bat — it handles this automatically.
 torch>=2.0.0
 torchvision>=0.15.0
 send2trash>=1.8.0

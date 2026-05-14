@@ -4,23 +4,13 @@ A desktop image similarity search tool built with Python, customtkinter, and PyT
 
 ---
 
-## What's new in v2.0.0 - beta:
-
-- ### **Redesigned UI**
-- ### **Improved UX - info and warning popups, event logging**
-- ### **Fixed all major bugs**
-- ### **Added results sorting**
-- ### **Extended CLI functionality**
-- ### **Added tests**
-
----
-
 ## Features
 
 - **Six search modes** — vector similarity, histogram, exact duplicate, duplicate groups, SSIM, and SIFT
 - **Resumable vector processing** — indexing picks up from where it left off after interruption or restart
 - **Per-folder subfolder control** — enable recursive scanning individually per folder
 - **Incomplete index detection** — warns before a vector search if any folder is only partially processed
+- **Toggle buttons** — Start Search and Process Folders both flip to a red Stop button mid-run; upload a query image at any time including during processing
 - **Save / Load sessions** — full state saved as JSON (mode, query image, folders, threshold, all results); export to CSV also available; legacy CSV files still load
 - **Missing file warnings** — load warns about folders or result files that no longer exist on disk
 - **Sortable results** — all treeview columns are clickable; duplicate groups support sorting by file count and total size
@@ -82,29 +72,55 @@ VisualSearch/
 
 ## Installation
 
+### Windows — quick start (recommended)
+
+1. Install **Python 3.10 or newer** from [python.org](https://www.python.org/downloads/)
+   — check **"Add Python to PATH"** during installation
+2. Double-click **`setup.bat`** — installs all dependencies automatically
+3. Double-click **`run.bat`** to launch VisualSearch
+
+That's it. `setup.bat` installs the CPU-only PyTorch build by default (smaller download, works on any machine without a GPU).
+
+---
+
+### Manual installation (all platforms)
+
+**1. Install Python 3.10+** from [python.org](https://www.python.org/downloads/)
+
+**2. Install PyTorch**
+
+CPU-only (recommended — smaller, works everywhere):
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+```
+
+GPU (NVIDIA CUDA, optional — faster vector processing):
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+```
+
+**3. Install remaining dependencies**
 ```bash
 pip install -r requirements.txt
 ```
 
-> **SIFT search** requires `opencv-contrib-python` instead of `opencv-python`. If you only need the other five modes, the standard `opencv-python` package is sufficient.
-
-> **PyTorch** can be large. Install a CPU-only build if you don't have a GPU:
-> ```bash
-> pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-> ```
+> **SIFT search** requires `opencv-contrib-python` instead of `opencv-python`. If you only need the other five modes, the standard `opencv-python` package is sufficient. The two packages conflict — only install one.
 
 ---
 
 ## Running
 
-### GUI
+### Windows
+```
+Double-click run.bat
+```
 
+### All platforms (terminal)
 ```bash
 python main.py
 ```
 
 ### CLI
-
 ```bash
 python cli.py --help
 ```
