@@ -1,0 +1,11 @@
+customtkinter>=5.2.0
+CTkListbox>=0.9
+Pillow>=10.0.0
+opencv-python>=4.8.0
+scikit-image>=0.21.0
+numpy>=1.24.0
+pandas>=2.0.0
+torch>=2.0.0
+torchvision>=0.15.0
+send2trash>=1.8.0
+darkdetect>=0.8.0

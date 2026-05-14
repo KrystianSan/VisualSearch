@@ -1,0 +1,85 @@
+# =============================================================================
+# VisualSearch — .gitignore
+# =============================================================================
+
+# --- VisualSearch runtime data -----------------------------------------------
+
+# Vector index — can be gigabytes, rebuilt via Process Folders / cli.py index
+vector_db/
+
+# Saved search results — user-specific
+VisualSearchResults/
+
+# Leftover atomic write temp files (should never persist, but just in case)
+*.tmp.npy
+*.tmp.csv
+
+# --- Python ------------------------------------------------------------------
+
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# --- Testing -----------------------------------------------------------------
+
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.cover
+.hypothesis/
+
+# --- IDEs and editors --------------------------------------------------------
+
+# JetBrains (PyCharm, etc.)
+.idea/
+*.iml
+*.iws
+
+# VS Code
+.vscode/
+
+# Vim / Neovim
+*.swp
+*.swo
+*~
+
+# --- OS ----------------------------------------------------------------------
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# --- Logs --------------------------------------------------------------------
+
+*.log
+logs/
