@@ -32,7 +32,7 @@ class SSIMSearch(BaseSearch):
             if self.stop_flag.is_set():
                 break
 
-            self.status.set(f"Analysing ({count}/{total}) – {found} matches")
+            self.status.set(self.t("status_analysing_matches", count=count, total=total, found=found))
 
             score = compare_ssim(self.target_path, str(file))
             if score is not None and score >= self.threshold:
@@ -43,6 +43,9 @@ class SSIMSearch(BaseSearch):
 
         elapsed = time.time() - start
         if not self.stop_flag.is_set():
-            self.status.set(f"Done in {elapsed:.2f}s – {found} matches")
+            msg = self.t("status_done_matches", elapsed=elapsed, found=found)
+            if found == 0:
+                msg += self.no_results_hint()
+            self.status.set(msg)
         self.set_progress(0)
         self.done()

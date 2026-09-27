@@ -35,19 +35,19 @@ class SIFTSearch(BaseSearch):
     def _thread(self, files: list) -> None:
         sift = initialize_sift()
         if sift is None:
-            messagebox.showerror("SIFT Error", "SIFT is unavailable. Install opencv-contrib-python.")
+            messagebox.showerror(self.t("title_sift_error"), self.t("msg_sift_unavailable"))
             self.done()
             return
 
         query_gray = cv2.imread(self.target_path, cv2.IMREAD_GRAYSCALE)
         if query_gray is None:
-            self.status.set("Error: cannot read query image.")
+            self.status.set(self.t("status_error_read_query"))
             self.done()
             return
 
         _, des1 = sift.detectAndCompute(query_gray, None)
         if des1 is None or len(des1) < SIFT_MIN_MATCHES:
-            self.status.set("No SIFT features found in query image.")
+            self.status.set(self.t("status_no_sift_features"))
             self.done()
             return
 
@@ -73,10 +73,13 @@ class SIFTSearch(BaseSearch):
                     log.warning("SIFTSearch: %s", exc)
 
                 self.set_progress(idx)
-                self.status.set(f"Analysing ({idx}/{total}) – {found} matches")
+                self.status.set(self.t("status_analysing_matches", count=idx, total=total, found=found))
 
         elapsed = time.time() - start
         if not self.stop_flag.is_set():
-            self.status.set(f"Done in {elapsed:.2f}s – {found} matches")
+            msg = self.t("status_done_matches", elapsed=elapsed, found=found)
+            if found == 0:
+                msg += self.no_results_hint()
+            self.status.set(msg)
         self.set_progress(0)
         self.done()

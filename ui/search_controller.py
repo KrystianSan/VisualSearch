@@ -87,13 +87,19 @@ class SearchController:
     def root(self):
         return self.app.root
 
+    def t(self, key: str, **kwargs) -> str:
+        """Translate *key* to the current UI language, formatting placeholders if given."""
+        from i18n import get_text
+        text = get_text(self.app.current_language, key)
+        return text.format(**kwargs) if kwargs else text
+
     # ------------------------------------------------------------------
     # Public: run / stop search
     # ------------------------------------------------------------------
 
     def run_search(self) -> None:
         if self.search_thread and self.search_thread.is_alive():
-            messagebox.showinfo("Info", "A search is already running.")
+            messagebox.showinfo(self.t("title_info"), self.t("msg_search_running"))
             return
 
         mode = self.app.search_combobox.get()
@@ -102,14 +108,14 @@ class SearchController:
         # Validate inputs
         if mode == "Duplicate Groups":
             if not has_folders:
-                messagebox.showinfo("Info", "Please add search folders.")
+                messagebox.showinfo(self.t("title_info"), self.t("msg_add_folders"))
                 return
         else:
             if not self.app.query_image:
-                messagebox.showinfo("Info", "Upload a query image first.")
+                messagebox.showinfo(self.t("title_info"), self.t("msg_upload_first"))
                 return
             if not has_folders:
-                messagebox.showinfo("Info", "Please add search folders.")
+                messagebox.showinfo(self.t("title_info"), self.t("msg_add_folders"))
                 return
 
         # Snapshot UI values before disabling controls
@@ -120,7 +126,7 @@ class SearchController:
         self.stop_flag.clear()
         self.app.set_searching()
         self.progress["value"] = 0
-        self.status.set("Scanning folders...")
+        self.status.set(self.t("status_scanning_folders"))
 
         # Clear rows immediately so the UI looks responsive.
         # For non-groups modes, also ensure we have the standard column schema
@@ -148,7 +154,7 @@ class SearchController:
         files = list_image_files(folders, folder_subfolders=folder_subfolders)
         self.app.files_list = files
         self.root.after(0, lambda: self.progress.configure(maximum=max(len(files), 1), value=0))
-        self.root.after(0, lambda: self.status.set("Starting search..."))
+        self.root.after(0, lambda: self.status.set(self.t("status_starting_search")))
 
         search_cls = self._registry.get(mode)
         if not search_cls:
@@ -172,7 +178,7 @@ class SearchController:
         self.stop_flag.set()
         self.app.set_idle()
         self.progress["value"] = 0
-        self.status.set("Search stopped.")
+        self.status.set(self.t("status_search_stopped"))
 
     # ------------------------------------------------------------------
     # Treeview helpers (called by search modules)
@@ -208,7 +214,7 @@ class SearchController:
         folder_subfolders = dict(self.app.folder_subfolders)
 
         if not folders:
-            messagebox.showinfo("Info", "Please add search folders first.")
+            messagebox.showinfo(self.t("title_info"), self.t("msg_add_folders_first"))
             return
 
         self.processing_flag.clear()
@@ -222,7 +228,7 @@ class SearchController:
 
     def stop_processing(self) -> None:
         self.processing_flag.set()
-        self.status.set("Stopping…")
+        self.status.set(self.t("status_stopping"))
 
     def _process_all_folders(self, folders: list, folder_subfolders: dict) -> None:
         stopped_early = False
@@ -242,9 +248,9 @@ class SearchController:
 
             initial_value = self.processed_files
             initial_msg = (
-                f"Resuming — {initial_value}/{self.total_files} already indexed"
+                self.t("status_resuming", done=initial_value, total=self.total_files)
                 if initial_value > 0
-                else f"Processing 0/{self.total_files} files"
+                else self.t("status_processing_files", total=self.total_files)
             )
             self.root.after(0, lambda: [
                 self.progress.configure(maximum=max(self.total_files, 1), value=initial_value),
@@ -263,7 +269,7 @@ class SearchController:
 
         except Exception as exc:
             log.exception("Processing failed")
-            self.root.after(0, lambda: messagebox.showerror("Error", f"Processing failed:\n{exc}"))
+            self.root.after(0, lambda: messagebox.showerror(self.t("title_error"), self.t("msg_processing_failed", error=exc)))
         finally:
             self.processing_active = False
             status_t.join(1.0)
@@ -272,13 +278,15 @@ class SearchController:
             m, s = divmod(elapsed, 60)
 
             if stopped_early:
-                msg = f"Stopped — {self.processed_files}/{self.total_files} file(s) indexed in {int(m)}m {s:.1f}s"
+                msg = self.t("status_stopped_indexed", done=self.processed_files,
+                             total=self.total_files, m=int(m), s=s)
                 self.root.after(0, lambda: self.status.set(msg))
             else:
-                summary = f"Done in {int(m)}m {s:.1f}s — {self.processed_files} file(s) indexed"
+                summary = self.t("status_done_indexed", m=int(m), s=s, count=self.processed_files)
                 self.root.after(0, lambda: [
                     self.status.set(summary),
-                    messagebox.showinfo("Done", f"All folders processed.\n{self.processed_files} file(s) indexed."),
+                    messagebox.showinfo(self.t("title_done"),
+                                        self.t("msg_all_processed", count=self.processed_files)),
                 ])
 
             self.root.after(0, self.app.set_process_button_idle)
@@ -338,10 +346,8 @@ class SearchController:
             elapsed = time.time() - self.start_time
             fps = self.session_files / elapsed if elapsed > 0 else 0
             m, s = divmod(elapsed, 60)
-            msg = (
-                f"Processing: {self.processed_files}/{self.total_files} files "
-                f"({int(m)}m {s:.1f}s, {fps:.1f} files/sec)"
-            )
+            msg = self.t("status_processing_rate", done=self.processed_files,
+                         total=self.total_files, m=int(m), s=s, fps=fps)
             self.root.after(0, self.status.set, msg)
             time.sleep(0.1)
 
@@ -351,7 +357,7 @@ class SearchController:
 
     def save_results(self) -> None:
         if not self.tree.get_children():
-            messagebox.showinfo("Info", "No results to save.")
+            messagebox.showinfo(self.t("title_info"), self.t("msg_no_results_to_save"))
             return
 
         mode = self.app.search_combobox.get()
@@ -394,7 +400,7 @@ class SearchController:
         safe_mode = mode.replace(" ", "_").lower()
         dest = filedialog.asksaveasfilename(
             initialdir=DEFAULT_RESULTS_DIR,
-            title="Save Results",
+            title=self.t("save_results"),
             defaultextension=".json",
             filetypes=[
                 ("JSON files", "*.json"),
@@ -411,8 +417,8 @@ class SearchController:
         else:
             with open(dest, "w", encoding="utf-8") as fh:
                 json.dump(payload, fh, indent=2, ensure_ascii=False)
-            self.status.set(f"Saved {len(results)} result(s) → {Path(dest).name}")
-            messagebox.showinfo("Saved", f"Saved {len(results)} result(s) to:\n{dest}")
+            self.status.set(self.t("status_saved_results", count=len(results), name=Path(dest).name))
+            messagebox.showinfo(self.t("title_saved"), self.t("msg_saved_to", count=len(results), dest=dest))
 
     def _save_csv(self, dest: str, results: list, is_groups: bool, meta: dict) -> None:
         """Export results as CSV (flat format; groups are flattened with a group column)."""
@@ -435,14 +441,14 @@ class SearchController:
                     mode  = meta.get("mode", "")
                     for r in results:
                         writer.writerow([r.get("path", ""), r.get("similarity", ""), mode, query])
-            self.status.set(f"Exported {len(results)} result(s) → {Path(dest).name}")
-            messagebox.showinfo("Exported", f"Exported {len(results)} result(s) to:\n{dest}")
+            self.status.set(self.t("status_exported_results", count=len(results), name=Path(dest).name))
+            messagebox.showinfo(self.t("title_exported"), self.t("msg_exported_to", count=len(results), dest=dest))
         except Exception as exc:
-            messagebox.showerror("Export Error", f"Could not write CSV:\n{exc}")
+            messagebox.showerror(self.t("title_export_error"), self.t("msg_write_csv_error", error=exc))
 
     def load_results(self) -> None:
         src = filedialog.askopenfilename(
-            title="Load Results",
+            title=self.t("load_results"),
             initialdir=DEFAULT_RESULTS_DIR,
             filetypes=[
                 ("Result files", "*.json *.csv"),
@@ -464,7 +470,7 @@ class SearchController:
             with open(src, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
         except Exception as exc:
-            messagebox.showerror("Load Error", f"Could not read file:\n{exc}")
+            messagebox.showerror(self.t("title_load_error"), self.t("msg_read_file_error", error=exc))
             return
 
         mode    = data.get("mode", "")
@@ -477,7 +483,7 @@ class SearchController:
         if mode in SEARCH_MODES:
             self.app.search_combobox.set(mode)
         elif mode:
-            warnings.append(f"Unknown search mode '{mode}' — kept current.")
+            warnings.append(self.t("msg_unknown_mode", mode=mode))
 
         # --- Restore threshold ---
         threshold = data.get("threshold")
@@ -494,7 +500,7 @@ class SearchController:
             present = [f for f in folders if Path(f).exists()]
             if missing:
                 warnings.append(
-                    f"{len(missing)} folder(s) no longer exist and were skipped:\n"
+                    self.t("msg_folders_missing", count=len(missing)) + "\n"
                     + "\n".join(f"  • {f}" for f in missing[:5])
                     + ("\n  …" if len(missing) > 5 else "")
                 )
@@ -516,7 +522,7 @@ class SearchController:
                 except Exception:
                     pass
             else:
-                warnings.append(f"Query image not found:\n  {query}")
+                warnings.append(self.t("msg_query_not_found", path=query))
 
         # --- Rebuild treeview and populate results ---
         is_groups = bool(results and isinstance(results[0], dict) and "group" in results[0])
@@ -535,7 +541,7 @@ class SearchController:
                 size_total = sum(f.get("size", 0) for f in files)
                 parent = self.tree.insert(
                     "", "end",
-                    text=group.get("group", f"Group {g_idx}"),
+                    text=group.get("group", f'{self.t("group_label")} {g_idx}'),
                     values=("", size_total, f"{size_total / (1024*1024):.2f} MB", "", len(files)),
                     tags=("group_header",),
                     open=True,
@@ -569,18 +575,19 @@ class SearchController:
                 self.tree.insert("", tk.END, values=(fn, path, sim), tags=(tag,))
 
         if missing_files:
-            warnings.append(f"{missing_files} result file(s) no longer exist on disk.")
+            warnings.append(self.t("msg_result_files_missing", count=missing_files))
 
         self.app.update_result_count()
         n = len(results)
-        self.status.set(f"Loaded {n} result(s) — {mode} — saved {saved_at}")
+        self.status.set(self.t("status_loaded_results", count=n, mode=mode, saved_at=saved_at))
 
-        summary = f"Loaded {n} result(s)\nMode: {mode or 'unknown'}\nSaved: {saved_at}"
+        summary = self.t("msg_loaded_summary", count=n,
+                         mode=mode or self.t("msg_unknown_value"), saved_at=saved_at)
         if warnings:
-            summary += "\n\n⚠ Warnings:\n" + "\n".join(warnings)
-            messagebox.showwarning("Loaded with warnings", summary)
+            summary += "\n\n" + self.t("msg_warnings_header") + "\n" + "\n".join(warnings)
+            messagebox.showwarning(self.t("title_loaded_warnings"), summary)
         else:
-            messagebox.showinfo("Loaded", summary)
+            messagebox.showinfo(self.t("title_loaded"), summary)
 
     def _load_csv_legacy(self, src: str) -> None:
         """Load old CSV format for backwards compatibility."""
@@ -606,9 +613,9 @@ class SearchController:
                                              values=(fn, path, sim), tags=(tag,))
                             loaded += 1
         except Exception as exc:
-            messagebox.showerror("Load Error", f"Could not read CSV:\n{exc}")
+            messagebox.showerror(self.t("title_load_error"), self.t("msg_read_csv_error", error=exc))
             return
 
         self.app.update_result_count()
-        self.status.set(f"Loaded {loaded} result(s) from legacy CSV.")
-        messagebox.showinfo("Loaded", f"Loaded {loaded} result(s) from legacy CSV.")
+        self.status.set(self.t("status_loaded_legacy", count=loaded))
+        messagebox.showinfo(self.t("title_loaded"), self.t("msg_loaded_legacy", count=loaded))

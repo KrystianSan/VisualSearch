@@ -98,6 +98,25 @@ class BaseSearch:
     def set_status(self, msg: str) -> None:
         self.root.after(0, lambda m=msg: self.status.set(m))
 
+    def t(self, key: str, **kwargs) -> str:
+        """Translate *key* to the current UI language, formatting placeholders if given."""
+        from i18n import get_text
+        text = get_text(self.app.current_language, key)
+        return text.format(**kwargs) if kwargs else text
+
+    def no_results_hint(self) -> str:
+        """
+        Return a short suffix suggesting the user enable 'subfolders', if any
+        currently-added folder has it disabled. Returns "" when every added
+        folder already has subfolders on (the hint wouldn't help) or there
+        are no folders at all.
+        """
+        folder_subfolders = getattr(self.app, "folder_subfolders", {}) or {}
+        added_folders = getattr(self.app, "added_folders", []) or []
+        if any(not folder_subfolders.get(f, False) for f in added_folders):
+            return "  " + self.t("hint_no_results_subfolders")
+        return ""
+
     def set_progress(self, value: int) -> None:
         self.root.after(0, lambda v=value: self.progress.__setitem__("value", v))
 

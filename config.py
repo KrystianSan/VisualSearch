@@ -7,7 +7,7 @@ from pathlib import Path
 
 # --- Application metadata ---
 APP_NAME = "VisualSearch"
-APP_VERSION = "2.0.0"
+APP_VERSION = "1.0.0"
 APP_GEOMETRY = "1366x768"
 APP_MIN_SIZE = (1000, 720)
 
@@ -25,7 +25,10 @@ SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".ppm", ".pgm"}
 
 # --- Search defaults ---
 DEFAULT_SIMILARITY_THRESHOLD = 50
-DEFAULT_SEARCH_MODE = "Vector Similarity"
+# Histogram Similarity requires no pre-processing step and no optional
+# dependencies, so it works immediately for a first-time user. Vector
+# Similarity gives better results but needs "Process Folders" run first.
+DEFAULT_SEARCH_MODE = "Histogram Similarity"
 SEARCH_MODES = [
     "Vector Similarity",
     "Histogram Similarity",

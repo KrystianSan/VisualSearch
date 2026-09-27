@@ -22,7 +22,7 @@ class HistogramSearch(BaseSearch):
             np.fromfile(self.target_path, dtype=np.uint8), cv2.IMREAD_COLOR
         )
         if img is None:
-            self.status.set("Error: cannot read query image.")
+            self.status.set(self.t("status_error_read_query"))
             return
 
         hist1 = calculate_histogram(img)
@@ -42,7 +42,7 @@ class HistogramSearch(BaseSearch):
             if self.stop_flag.is_set():
                 break
 
-            self.status.set(f"Analysing ({count}/{total}) – {found} matches")
+            self.status.set(self.t("status_analysing_matches", count=count, total=total, found=found))
 
             img = cv2.imdecode(np.fromfile(str(file), dtype=np.uint8), cv2.IMREAD_COLOR)
             if img is not None:
@@ -56,6 +56,9 @@ class HistogramSearch(BaseSearch):
 
         elapsed = time.time() - start
         if not self.stop_flag.is_set():
-            self.status.set(f"Done in {elapsed:.2f}s – {found} matches found")
+            msg = self.t("status_done_matches_found", elapsed=elapsed, found=found)
+            if found == 0:
+                msg += self.no_results_hint()
+            self.status.set(msg)
         self.set_progress(0)
         self.done()

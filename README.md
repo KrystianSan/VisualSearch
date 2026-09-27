@@ -4,12 +4,22 @@ A desktop image similarity search tool built with Python, customtkinter, and PyT
 
 ---
 
+## What's new in v2.0.0 - beta:
+
+- ### **Redesigned UI**
+- ### **Improved UX - info and warning popups, event logging**
+- ### **Fixed all major bugs**
+- ### **Added results sorting**
+- ### **Extended CLI functionality**
+- ### **Added tests**
+
+---
+
 ## Features
 
 - **Six search modes** — vector similarity, histogram, exact duplicate, duplicate groups, SSIM, and SIFT
-- **Resumable vector processing** — indexing picks up from where it left off after interruption or restart
+- **Resumable vector processing and incompletion detection** — indexing picks up from where it left off after interruption or restart
 - **Per-folder subfolder control** — enable recursive scanning individually per folder
-- **Incomplete index detection** — warns before a vector search if any folder is only partially processed
 - **Toggle buttons** — Start Search and Process Folders both flip to a red Stop button mid-run; upload a query image at any time including during processing
 - **Save / Load sessions** — full state saved as JSON (mode, query image, folders, threshold, all results); export to CSV also available; legacy CSV files still load
 - **Missing file warnings** — load warns about folders or result files that no longer exist on disk
@@ -17,7 +27,7 @@ A desktop image similarity search tool built with Python, customtkinter, and PyT
 - **Preview panes** — query and selected image shown side by side; duplicate groups show the first two files of the selected group
 - **Three languages** — English, Spanish, Polish (all UI strings translated, easily extendable via `i18n.py`)
 - **Side-by-side image preview** — With a click of a button you can visually compare two images in a separate, re-sizeable window: one selected by user from the search results and the query image
-- **Light / dark theme** — custom CTk navbar follows system appearance automatically
+- **Light / dark theme** — custom CTk navbar now follows system appearance
 - **Full CLI** — all six search modes available headlessly via `cli.py` with JSON/CSV output
 - **Test suite** — 67 unit and integration tests covering `core/` and `utils/`
 
@@ -357,4 +367,29 @@ pytest --cov=core --cov=utils --cov-report=term-missing
 | `pandas` | Metadata CSV read/write |
 | `torch` + `torchvision` | ResNet18 feature extraction |
 | `send2trash` | Safe deletion to system Recycle Bin |
-| `darkdetect` | System appearance mode detection |
+
+
+---
+
+
+## Changelog
+
+### 2.0.2
+- Fixed duplicate groups progress bar not updating correctly
+- Fixed results sorting by path and filename not working
+- Changed default search mode(does not require generating vector files)
+- Minor UI tweaks
+- Progress bar tweaks, added information when user gets 0 results with not all folders with subfolder checkbox checked
+- Adjusted similarity % threshold in Histogram Similarity mode
+
+### 2.0.1
+- Swapped folder bar button layout (Add/Remove now on the left)
+- Changed default search mode to Histogram Similarity
+
+---
+### 2.0.0
+- Full project restructure: `search/` package, `core/algorithms.py`
+- Added CLI (`cli.py`) with all six search modes
+- Added test suite (99 tests)
+- Complete i18n coverage (English, Spanish, Polish)
+- Removed adaptive threshold; new fixed-baseline vector scoring

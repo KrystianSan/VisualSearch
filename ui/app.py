@@ -5,15 +5,15 @@ Main application window — VisualSearch.
 Layout
 ------
 ┌──────────────────────────────────────────────────────────────┐
-│  Folders bar                                                 │
+│  Folders bar  (full width, compact)                          │
 ├─────────────┬────────────────────────────────────────────────┤
-│             │  Results treeview                              │
+│             │  Results treeview  (expands, takes most space) │
 │  Left       │  Filename | Path | Similarity                  │
 │  Control    ├────────────────────────────────────────────────┤
-│  Sidebar    │  Image preview strip                           │
+│  Sidebar    │  Image preview strip  (fixed ~200 px)          │
 │             │  [Query canvas]       [Selected canvas]        │
 ├─────────────┴────────────────────────────────────────────────┤
-│  Status label + Progress bar                                 │
+│  Status label + Progress bar  (full width)                   │
 └──────────────────────────────────────────────────────────────┘
 """
 
@@ -86,6 +86,11 @@ class VisualSearch:
         self.last_appearance_mode = ctk.get_appearance_mode()
         self._update_canvas_colors()
         self._start_theme_monitor()
+
+    def t(self, key: str, **kwargs) -> str:
+        """Translate *key* to the current UI language, formatting placeholders if given."""
+        text = get_text(self.current_language, key)
+        return text.format(**kwargs) if kwargs else text
 
     # ------------------------------------------------------------------ #
     # Root configuration                                                   #
@@ -175,26 +180,26 @@ class VisualSearch:
 
         t = lambda k: get_text(self.current_language, k)
 
-        self.folder_up_button = CTkButton(bar, text=t("folder_up"), width=110,
-                                          command=self._move_folder_up)
-        self.folder_up_button.grid(row=0, column=0, padx=(6, 4), pady=(6, 2), sticky="ew")
+        self.add_folder_button = CTkButton(bar, text=t("add_folder"), width=110,
+                                           command=self._add_folder)
+        self.add_folder_button.grid(row=0, column=0, padx=(6, 4), pady=(6, 2), sticky="ew")
 
-        self.folder_down_button = CTkButton(bar, text=t("folder_down"), width=110,
-                                            command=self._move_folder_down)
-        self.folder_down_button.grid(row=1, column=0, padx=(6, 4), pady=(2, 6), sticky="ew")
+        self.remove_folder_button = CTkButton(bar, text=t("remove_folder"), width=110,
+                                              command=self._remove_folder)
+        self.remove_folder_button.grid(row=1, column=0, padx=(6, 4), pady=(2, 6), sticky="ew")
 
         # Scrollable frame replaces CTkListbox — allows per-row widgets
         self._folders_scroll = ctk.CTkScrollableFrame(bar, height=96, orientation="vertical")
         self._folders_scroll.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=4, pady=6)
         self._folders_scroll.columnconfigure(0, weight=1)
 
-        self.remove_folder_button = CTkButton(bar, text=t("remove_folder"), width=110,
-                                              command=self._remove_folder)
-        self.remove_folder_button.grid(row=0, column=2, padx=(4, 6), pady=(6, 2), sticky="ew")
+        self.folder_up_button = CTkButton(bar, text=t("folder_up"), width=110,
+                                          command=self._move_folder_up)
+        self.folder_up_button.grid(row=0, column=2, padx=(4, 6), pady=(6, 2), sticky="ew")
 
-        self.add_folder_button = CTkButton(bar, text=t("add_folder"), width=110,
-                                           command=self._add_folder)
-        self.add_folder_button.grid(row=1, column=2, padx=(4, 6), pady=(2, 6), sticky="ew")
+        self.folder_down_button = CTkButton(bar, text=t("folder_down"), width=110,
+                                            command=self._move_folder_down)
+        self.folder_down_button.grid(row=1, column=2, padx=(4, 6), pady=(2, 6), sticky="ew")
 
     # ------------------------------------------------------------------ #
     # Left sidebar  (row 1, col 0)                                         #
@@ -584,6 +589,8 @@ class VisualSearch:
                     text=t("col_similarity") + (" " + arrow if active == "similarity" else " ↕"))
         except tk.TclError:
             pass  # tree not yet built or destroyed
+
+    def _sort_column(self, col: str, cast):
         """Generic column sort for the standard treeview. Toggles direction."""
         items = self.tree.get_children("")
         if not items:
@@ -811,7 +818,7 @@ class VisualSearch:
         if not path:
             return
         if path in self.added_folders:
-            messagebox.showinfo("Info", "Folder already added.")
+            messagebox.showinfo(self.t("title_info"), self.t("msg_folder_already_added"))
             return
         self.added_folders.append(path)
         self.folder_subfolders[path] = False
@@ -855,13 +862,13 @@ class VisualSearch:
             self.target_image_path = path
             self.query_image = Image.open(path)
             name = os.path.basename(path)
-            self.status.set(f"Query image: {name}")
+            self.status.set(self.t("status_query_image_set", name=name))
             self.query_label.configure(
                 text=get_text(self.current_language, "query_prefix") + f": {name}"
             )
             self._display_on_canvas(self.query_image, self.canvas_uploaded)
         elif not self.target_image_path:
-            messagebox.showinfo("Info", "No query image selected.")
+            messagebox.showinfo(self.t("title_info"), self.t("msg_no_query_image"))
 
     # ------------------------------------------------------------------ #
     # Canvas helpers                                                       #
@@ -1005,13 +1012,13 @@ class VisualSearch:
     def _show_images(self):
         selected_path = self._get_selected_path()
         if selected_path is None:
-            messagebox.showinfo("Info", "No valid file selected.")
+            messagebox.showinfo(self.t("title_info"), self.t("msg_no_valid_file"))
             return
 
         target_path = Path(self.target_image_path) if self.target_image_path else selected_path
 
         win = tk.Toplevel(self.root)
-        win.title("Full Size Comparison")
+        win.title(self.t("title_full_size"))
         win.geometry("1100x650")
         win.columnconfigure(0, weight=1)
         win.columnconfigure(1, weight=1)
@@ -1021,8 +1028,8 @@ class VisualSearch:
         # Store canvases in explicit order: [left=query, right=selected]
         canvases = []
         for col, (label_text, img_path) in enumerate([
-            ("Query Image", target_path),
-            ("Selected Image", selected_path),
+            (self.t("query_image"), target_path),
+            (self.t("selected_image"), selected_path),
         ]):
             CTkLabel(win, text=label_text,
                      font=ctk.CTkFont(size=11, weight="bold")).grid(
@@ -1059,12 +1066,12 @@ class VisualSearch:
     def _open_in_explorer(self):
         path = self._get_selected_path()
         if path is None:
-            messagebox.showinfo("Info", "No valid file selected.")
+            messagebox.showinfo(self.t("title_info"), self.t("msg_no_valid_file"))
             return
         try:
             open_in_explorer(str(path))
         except Exception as exc:
-            messagebox.showerror("Error", str(exc))
+            messagebox.showerror(self.t("title_error"), str(exc))
 
     # ------------------------------------------------------------------ #
     # Delete selected                                                       #
@@ -1088,7 +1095,7 @@ class VisualSearch:
     def _delete_selected(self):
         selected_items = self.tree.selection()
         if not selected_items:
-            messagebox.showinfo("Info", "No items selected.")
+            messagebox.showinfo(self.t("title_info"), self.t("msg_no_items_selected"))
             return
 
         files_to_delete: list[tuple] = []
@@ -1109,8 +1116,8 @@ class VisualSearch:
 
         if not files_to_delete:
             return
-        if not messagebox.askyesno("Confirm",
-                                   f"Move {len(files_to_delete)} file(s) to Recycle Bin?"):
+        if not messagebox.askyesno(self.t("title_confirm"),
+                                   self.t("msg_confirm_delete", count=len(files_to_delete))):
             return
 
         q: Queue = Queue()
@@ -1133,7 +1140,7 @@ class VisualSearch:
                     if self.tree.exists(data):
                         self.tree.delete(data)
                 elif kind == "err":
-                    messagebox.showerror("Deletion Error", data)
+                    messagebox.showerror(self.t("title_deletion_error"), data)
                 elif kind == "done":
                     self.update_result_count()
                     return

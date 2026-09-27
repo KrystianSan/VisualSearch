@@ -68,16 +68,17 @@ class DuplicateGroupsSearch(BaseSearch):
                                         nt=new_total, nf=n_files, gi=groups_so_far:
                                         self._append_to_group(iid, e, fi, nt, nf, gi))
 
-                self.set_status(f"Hashing ({idx}/{total}) – {groups_so_far} group(s) found")
+                self.set_status(self.t("status_hashing_groups", idx=idx, total=total, count=groups_so_far))
                 self.set_progress(idx)
 
         elapsed = time.time() - start
         stopped = self.stop_flag.is_set()
-        msg = (
-            f"Search stopped — {groups_so_far} group(s) found so far"
-            if stopped else
-            f"Found {groups_so_far} duplicate group(s) in {elapsed:.2f}s"
-        )
+        if stopped:
+            msg = self.t("status_groups_stopped", count=groups_so_far)
+        else:
+            msg = self.t("status_groups_found", count=groups_so_far, elapsed=elapsed)
+            if groups_so_far == 0:
+                msg += self.no_results_hint()
         self.root.after(0, lambda m=msg: self._finish(m))
 
     def _insert_new_group(self, group: dict, file_hash: str,
@@ -87,7 +88,7 @@ class DuplicateGroupsSearch(BaseSearch):
         n = len(group["files"])
         parent = self.tree.insert(
             "", "end",
-            text=f"Group {g_idx} – {size_mb:.2f} MB ({n} files)",
+            text=f'{self.t("group_label")} {g_idx} \u2013 {size_mb:.2f} MB ({n} {self.t("unit_files")})',
             values=("", group["total_size"], f"{size_mb:.2f} MB", "", n),
             tags=("group_header",),
             open=True,
@@ -116,9 +117,9 @@ class DuplicateGroupsSearch(BaseSearch):
         # Update header text, raw size, and FileCount
         size_mb = new_total / (1024 * 1024)
         current_text = self.tree.item(parent_id, "text")
-        group_num = current_text.split(" –")[0]
+        group_num = current_text.split(" \u2013")[0]
         self.tree.item(parent_id,
-                       text=f"{group_num} – {size_mb:.2f} MB ({n_files} files)",
+                       text=f'{group_num} \u2013 {size_mb:.2f} MB ({n_files} {self.t("unit_files")})',
                        values=("", new_total, f"{size_mb:.2f} MB", "", n_files))
         self.app.update_result_count()
 

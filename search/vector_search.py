@@ -34,13 +34,13 @@ class VectorSearch(BaseSearch):
     def _start_on_main(self, files: list, folder_subfolders: dict) -> None:
         query_vec = self.app.vector_extractor.extract(Path(self.target_path))
         if query_vec is None:
-            messagebox.showerror("Error", "Feature extraction failed.")
+            messagebox.showerror(self.t("title_error"), self.t("msg_feature_extraction_failed"))
             self.ctrl._reset_search_ui()
             return
 
         vec_files = self._collect_vector_files(folder_subfolders)
         if not vec_files:
-            messagebox.showinfo("Info", "No vector data found. Run 'Process Folders' first.")
+            messagebox.showinfo(self.t("title_info"), self.t("msg_no_vector_data"))
             self.ctrl._reset_search_ui()
             return
 
@@ -48,9 +48,8 @@ class VectorSearch(BaseSearch):
         if incomplete:
             names = "\n".join(f"  • {f}" for f in incomplete)
             answer = messagebox.askyesno(
-                "Incomplete Vector Data",
-                f"The following folder(s) have not been fully processed:\n\n{names}\n\n"
-                "Search results may be incomplete. Continue anyway?",
+                self.t("title_incomplete_vector_data"),
+                self.t("msg_incomplete_folders", names=names),
             )
             if not answer:
                 self.ctrl._reset_search_ui()
@@ -135,7 +134,7 @@ class VectorSearch(BaseSearch):
     def _thread(self, vec_files: list[Path], query_vec: np.ndarray, threshold: int) -> None:
         try:
             if query_vec.shape[0] != 512:
-                self.root.after(0, messagebox.showerror, "Error", "Query vector dimension mismatch (expected 512).")
+                self.root.after(0, messagebox.showerror, self.t("title_error"), self.t("msg_vector_dim_mismatch"))
                 return
 
             query_path = Path(self.target_path).resolve()
@@ -149,7 +148,7 @@ class VectorSearch(BaseSearch):
 
                 folder_label = str(vf.parent)
                 self.set_progress(idx)
-                self.set_status(f"Searching {folder_label} ({idx}/{total})")
+                self.set_status(self.t("status_searching_folder", folder=folder_label, idx=idx, total=total))
 
                 try:
                     vectors = np.load(vf)
@@ -172,7 +171,7 @@ class VectorSearch(BaseSearch):
 
             elapsed = time.time() - start
             if self.stop_flag.is_set():
-                self.set_status(f"Search stopped — {len(results)} result(s) collected so far")
+                self.set_status(self.t("status_search_stopped_partial", count=len(results)))
                 self.set_progress(0)
                 self.done()
             else:
@@ -191,10 +190,10 @@ class VectorSearch(BaseSearch):
             tag = "evenrow" if row_count % 2 == 0 else "oddrow"
             self.tree.insert("", "end", values=(filename, path, f"{score:.1f}%"), tags=(tag,))
         count = len(self.tree.get_children())
-        self.status.set(
-            f"Found {count} match{'es' if count != 1 else ''} in {elapsed:.2f}s"
-            f"  [threshold: {self.threshold}%]"
-        )
+        msg = self.t("status_found_matches_threshold", count=count, elapsed=elapsed, threshold=self.threshold)
+        if count == 0:
+            msg += self.no_results_hint()
+        self.status.set(msg)
         self.progress["value"] = 0
         self.app.update_result_count()
         self.ctrl._reset_search_ui()

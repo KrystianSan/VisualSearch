@@ -30,7 +30,7 @@ class DuplicateSearch(BaseSearch):
     def _thread(self, files: list) -> None:
         target_hash = calculate_image_hash(self.target_path)
         if not target_hash:
-            self.set_status("Error: could not hash query image.")
+            self.set_status(self.t("status_error_hash_query"))
             self.done()
             return
         target_quick = calculate_quick_hash(self.target_path)
@@ -43,7 +43,7 @@ class DuplicateSearch(BaseSearch):
             if self.stop_flag.is_set():
                 break
 
-            self.set_status(f"Analysing ({count}/{total}) – {found} duplicate(s)")
+            self.set_status(self.t("status_analysing_duplicates", count=count, total=total, found=found))
 
             try:
                 if os.path.getsize(file) != target_size:
@@ -51,7 +51,7 @@ class DuplicateSearch(BaseSearch):
                 if calculate_quick_hash(file) != target_quick:
                     continue
                 if calculate_image_hash(file) == target_hash:
-                    self.insert_row(str(file), "Duplicate")
+                    self.insert_row(str(file), self.t("result_duplicate"))
                     found += 1
             except Exception as exc:
                 log.warning("DuplicateSearch: %s: %s", file, exc)
@@ -60,6 +60,9 @@ class DuplicateSearch(BaseSearch):
 
         elapsed = time.time() - start
         if not self.stop_flag.is_set():
-            self.set_status(f"Found {found} duplicate(s) in {elapsed:.1f}s")
+            msg = self.t("status_found_duplicates", found=found, elapsed=elapsed)
+            if found == 0:
+                msg += self.no_results_hint()
+            self.set_status(msg)
         self.set_progress(0)
         self.done()
