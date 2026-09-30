@@ -36,8 +36,8 @@ class SSIMSearch(BaseSearch):
 
             score = compare_ssim(self.target_path, str(file))
             if score is not None and score >= self.threshold:
-                self.insert_row(str(file), f"{score:.2f}")
-                found += 1
+                if self.insert_row(str(file), f"{score:.2f}"):
+                    found += 1
 
             self.set_progress(count)
 

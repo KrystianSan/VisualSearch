@@ -51,8 +51,8 @@ class DuplicateSearch(BaseSearch):
                 if calculate_quick_hash(file) != target_quick:
                     continue
                 if calculate_image_hash(file) == target_hash:
-                    self.insert_row(str(file), self.t("result_duplicate"))
-                    found += 1
+                    if self.insert_row(str(file), self.t("result_duplicate")):
+                        found += 1
             except Exception as exc:
                 log.warning("DuplicateSearch: %s: %s", file, exc)
 

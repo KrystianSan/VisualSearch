@@ -67,8 +67,8 @@ class SIFTSearch(BaseSearch):
                     sim = future.result()
                     if sim is not None and sim >= self.threshold:
                         path_str, sim_str = str(futures[future]), f"{sim:.2f}"
-                        self.insert_row(path_str, sim_str)
-                        found += 1
+                        if self.insert_row(path_str, sim_str):
+                            found += 1
                 except Exception as exc:
                     log.warning("SIFTSearch: %s", exc)
 

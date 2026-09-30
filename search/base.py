@@ -75,25 +75,35 @@ class BaseSearch:
         except (OSError, ValueError, TypeError):
             return False
 
-    def insert_row(self, path: str, label: str) -> None:
+    def insert_row(self, path: str, label: str) -> bool:
         """
         Insert a result row into the treeview from any thread.
         Silently skips the query image — no search module needs to check.
         Columns: (filename, path, similarity) with alternating row colors.
+
+        Returns True if a row was inserted, False if skipped (query image) —
+        callers that track their own "found" counter should only increment
+        it when this returns True, or the count will run ahead of what's
+        actually in the treeview.
         """
         if self.is_query_image(path):
-            return
+            return False
         filename = os.path.basename(path)
-        # Determine row parity for alternating colors
-        row_count = len(self.tree.get_children())
-        tag = "evenrow" if row_count % 2 == 0 else "oddrow"
         self.root.after(
             0,
-            lambda fn=filename, p=path, s=label, t=tag:
-                self.tree.insert("", tk.END, values=(fn, p, s), tags=(t,))
+            lambda fn=filename, p=path, s=label:
+                self._insert_row_on_main(fn, p, s)
         )
-        # Update result counter after each insert
-        self.root.after(0, self.app.update_result_count)
+        return True
+
+    def _insert_row_on_main(self, filename: str, path: str, label: str) -> None:
+        """Runs on the main thread: reads current row count for striping,
+        inserts, then updates the result counter — all against the tree's
+        actual state, not a value read from the calling worker thread."""
+        row_count = len(self.tree.get_children())
+        tag = "evenrow" if row_count % 2 == 0 else "oddrow"
+        self.tree.insert("", tk.END, values=(filename, path, label), tags=(tag,))
+        self.app.update_result_count()
 
     def set_status(self, msg: str) -> None:
         self.root.after(0, lambda m=msg: self.status.set(m))

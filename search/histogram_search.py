@@ -49,8 +49,8 @@ class HistogramSearch(BaseSearch):
                 hist2 = calculate_histogram(img)
                 sim = compare_histograms(hist1, hist2)
                 if sim >= self.threshold:
-                    self.insert_row(str(file), f"{sim:.2f}")
-                    found += 1
+                    if self.insert_row(str(file), f"{sim:.2f}"):
+                        found += 1
 
             self.set_progress(count)
 

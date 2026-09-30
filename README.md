@@ -82,22 +82,11 @@ VisualSearch/
 
 ## Installation
 
-### Windows — quick start (recommended)
+### 1. Install Python 3.10+
 
-1. Install **Python 3.10 or newer** from [python.org](https://www.python.org/downloads/)
-   — check **"Add Python to PATH"** during installation
-2. Double-click **`setup.bat`** — installs all dependencies automatically
-3. Double-click **`run.bat`** to launch VisualSearch
+Download from [python.org](https://www.python.org/downloads/) — check **"Add Python to PATH"** during installation.
 
-That's it. `setup.bat` installs the CPU-only PyTorch build by default (smaller download, works on any machine without a GPU).
-
----
-
-### Manual installation (all platforms)
-
-**1. Install Python 3.10+** from [python.org](https://www.python.org/downloads/)
-
-**2. Install PyTorch**
+### 2. Install PyTorch
 
 CPU-only (recommended — smaller, works everywhere):
 ```bash
@@ -109,7 +98,7 @@ GPU (NVIDIA CUDA, optional — faster vector processing):
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
-**3. Install remaining dependencies**
+### 3. Install remaining dependencies
 ```bash
 pip install -r requirements.txt
 ```
@@ -120,12 +109,6 @@ pip install -r requirements.txt
 
 ## Running
 
-### Windows
-```
-Double-click run.bat
-```
-
-### All platforms (terminal)
 ```bash
 python main.py
 ```
@@ -344,7 +327,7 @@ pytest --cov=core --cov=utils --cov-report=term-missing
 - **Atomic vector writes** — `vector_db.py` writes to `.tmp.npy` / `.tmp.csv` then renames atomically, preventing corrupt index files on interruption
 - **Resume detection** — `VectorDatabase.count_indexed()` reads the existing metadata row count before indexing begins; cached files (mtime match) are skipped without double-counting in the progress bar
 - **Vector scoring** — raw cosine similarities are rescaled using a fixed baseline (`VECTOR_SIMILARITY_BASELINE`) and a power-curve exponent (`VECTOR_SCORE_EXPONENT`) to produce visually spread percentage scores. Both constants are in `config.py`. No adaptive threshold — the user's spinbox value is the only filter.
-- **Logging** — all modules use Python's `logging` with `getLogger(__name__)`; pass `-v` on the CLI or configure a handler in your own code for full debug output
+- **Logging** — all modules use Python's `logging` with `getLogger(__name__)`; pass `-v` on the CLI or configure a handler in your own code for full debug output, writes to ~/VisualSearchResults/visualsearch.log
 - **Single source of truth** — all constants, paths, supported extensions, and defaults live in `config.py`
 
 ---
@@ -373,6 +356,10 @@ pytest --cov=core --cov=utils --cov-report=term-missing
 
 
 ## Changelog
+
+### 2.0.3
+- Fixed event logging
+- Removed .bat launcher, now runs only via main.py or cli.py
 
 ### 2.0.2
 - Fixed duplicate groups progress bar not updating correctly

@@ -864,7 +864,7 @@ class VisualSearch:
             name = os.path.basename(path)
             self.status.set(self.t("status_query_image_set", name=name))
             self.query_label.configure(
-                text=get_text(self.current_language, "query_prefix") + f": {name}"
+                text=get_text(self.current_language, "query_prefix") + f": {path}"
             )
             self._display_on_canvas(self.query_image, self.canvas_uploaded)
         elif not self.target_image_path:
@@ -950,9 +950,8 @@ class VisualSearch:
             if not path:
                 return
             self._try_display(str(path), self.canvas_selected)
-            name = os.path.basename(str(path))
             self.selected_label.configure(
-                text=get_text(self.current_language, "selected_prefix") + f": {name}"
+                text=get_text(self.current_language, "selected_prefix") + f": {path}"
             )
 
     def _try_display(self, raw_path: str, canvas: tk.Canvas):
